@@ -43,11 +43,14 @@ async function run() {
 
     // routes
     app.use("/v1/users", userRoutes(db))
+    
+  
 
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);
   }
 }
+
 run().catch(console.dir);
 
 

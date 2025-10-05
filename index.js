@@ -71,29 +71,36 @@ io.on("connection", (socket) => {
 
   socket.on("joinRoom", async (userEmail) => {
     if (!userEmail) return;
-    socket.join(userEmail); 
+    socket.join(userEmail);
     console.log(`${userEmail} joined their private room`);
   });
 
   socket.on("privateMessage", async ({ senderEmail, receiverEmail, text }) => {
-    const db = client.db("careerCrafter");
-    const messagesCollection = db.collection("messages");
+    try {
+      const db = client.db("careerCrafter");
+      const messagesCollection = db.collection("messages");
 
-    const msg = {
-      senderEmail,
-      receiverEmail,
-      text,
-      createdAt: new Date(),
-    };
+      const chat = {
+        fromEmail: senderEmail,
+        toEmail: receiverEmail,
+        message: text,
+        timestamp: new Date(),
+      };
 
-    // Save message to DB
-    await messagesCollection.insertOne(msg);
+      await messagesCollection.insertOne(chat);
 
-    io.to(receiverEmail).emit("chatMessage", msg);
+      io.to(receiverEmail).emit("chatMessage", chat);
+      io.to(senderEmail).emit("chatMessage", chat);
+    } catch (err) {
+      console.error("Socket message save error:", err);
+    }
+  });
 
-    io.to(senderEmail).emit("chatMessage", msg);
+  socket.on("disconnect", () => {
+    console.log("user disconnected:", socket.id);
   });
 });
+
 
 app.get("/", (req, res) => {
   res.send("Career Crafter running now");

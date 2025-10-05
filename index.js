@@ -26,7 +26,7 @@ const pass = process.env.DB_PASS;
 
 const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=true&w=majority&appName=MDB`;
 
-// import routes
+// import route
 
 const userRoutes = require("./routes/user");
 const messageRoutes = require("./routes/messageRoute");

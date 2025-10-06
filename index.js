@@ -9,6 +9,16 @@ const { Server } = require("socket.io");
 const { createServer } = require("node:http");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 
+const admin = require("firebase-admin");
+// decode base64 key from .env
+const serviceAccount = JSON.parse(
+  Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64, "base64").toString("utf8")
+);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 const app = express();
 const port = process.env.PORT || 3000;
 const server = createServer(app);

@@ -125,6 +125,55 @@ router.patch("/email/:email", async (req, res) => {
     }
   });
 
+
+
+
+
+router.get("/allUsersForNetwork", async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ message: "UserId is required" });
+    }
+
+    let objectId;
+    try {
+      objectId = new ObjectId(userId);
+    } catch (err) {
+      return res.status(400).json({ message: "Invalid userId format", error: err.message });
+    }
+
+    if (!usersCollection) {
+      console.error("usersCollection is not initialized!");
+      return res.status(500).json({ message: "Internal server error: usersCollection not found" });
+    }
+
+    // fetch current user to ensure it exists
+    const currentUser = await usersCollection.findOne({ _id: objectId });
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const users = await usersCollection
+      .find({ _id: { $ne: objectId } })
+      .project({ fullName: 1, email: 1, profileImage: 1, tags: 1 })
+      .toArray();
+
+    console.log("Fetched users for network:", users.length);
+
+    res.status(200).json(users);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ message: "Failed to fetch users", error: error.toString() });
+  }
+});
+
+
+
+
+
+
   return router;
 };
   

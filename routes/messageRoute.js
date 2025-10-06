@@ -13,7 +13,7 @@ const badWords = [
   'fuck', 'shit', 'bitch', 'bastard', 'asshole', 'dick', 'piss', 'cunt', 'slut',
   'whore', 'fag', 'douche', 'idiot', 'stupid', 'moron', 'retard', 'damn', 'crap',
   'screw', 'bollocks', 'bugger', 'twat', 'prick', 'cock', 'nigger', 'nigga', 'arse',
-  'pussy', 'faggot', 'slut', 'whore', 'motherfucker', 'son of a bitch', 'jerk',
+  'pussy', 'faggot', 'slut', 'whore', 'motherfucker', 'son of a bitch', 'jerk', 'bal',
 
   // Bangla (common abusive words)
   'হারামজাদা', 'শুয়োরের বাচ্চা', 'মাদারচোদ', 'ভোদা', 'গান্ডু',

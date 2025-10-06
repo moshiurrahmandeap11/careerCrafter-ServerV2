@@ -7,13 +7,12 @@ module.exports = (db) => {
   const usersCollection = db.collection("users");
   const connectsCollection = db.collection("connects");
 
-  // ✅ Send a connection request
+  // Send a connection request (no JWT, so senderId must be passed in body)
   router.post('/connectReq', async (req, res) => {
     try {
-      const { receiverId } = req.body;
-      const senderId = req.user.id;
+      const { receiverId, senderId } = req.body; // pass senderId from frontend
 
-      // 🔍 Check if request already exists (either direction)
+      // Check if request already exists
       const exist = await connectsCollection.findOne({
         $or: [
           { senderId, receiverId },
@@ -37,10 +36,10 @@ module.exports = (db) => {
     }
   });
 
-  // 📥 Get all pending requests for the logged-in user
+  // Get all pending requests for a user (pass userId as query param)
   router.get('/pendingReq', async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.query.userId;
       const pending = await connectsCollection
         .find({ receiverId: userId, status: "pending" })
         .toArray();
@@ -50,22 +49,39 @@ module.exports = (db) => {
     }
   });
 
-  // ✅ Accept a connection request
+  // Accept connection request (pass senderId, receiverId in body)
   router.patch('/accept/:id', async (req, res) => {
     try {
       const id = req.params.id;
-      const updated = await connectsCollection.findOneAndUpdate(
+      const updatedConnect = await connectsCollection.findOneAndUpdate(
         { _id: new ObjectId(id) },
         { $set: { status: "accepted" } },
         { returnDocument: "after" }
       );
-      res.json(updated.value);
+
+      if (!updatedConnect.value) {
+        return res.status(404).json({ message: "Connection request not found" });
+      }
+
+      const { senderId, receiverId } = updatedConnect.value;
+
+      // Add to friends array
+      await usersCollection.updateOne(
+        { _id: new ObjectId(receiverId) },
+        { $addToSet: { friends: new ObjectId(senderId) } }
+      );
+      await usersCollection.updateOne(
+        { _id: new ObjectId(senderId) },
+        { $addToSet: { friends: new ObjectId(receiverId) } }
+      );
+
+      res.json(updatedConnect.value);
     } catch (error) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // ❌ Ignore a connection request
+  // Ignore connection request
   router.patch("/ignore/:id", async (req, res) => {
     try {
       const id = req.params.id;
@@ -80,42 +96,137 @@ module.exports = (db) => {
     }
   });
 
-  // 🔗 Get all accepted connections for the logged-in user
+  // Get all connections for a user (pass userId as query param)
   router.get("/myConnections", async (req, res) => {
     try {
-      const userId = req.user.id;
-      const connections = await connectsCollection.find({
-        status: "accepted",
-        $or: [{ senderId: userId }, { receiverId: userId }]
-      }).toArray();
-      res.json(connections);
+      const userId = req.query.userId;
+      const connections = await connectsCollection.aggregate([
+        {
+          $match: {
+            status: "accepted",
+            $or: [{ senderId: userId }, { receiverId: userId }]
+          }
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "senderId",
+            foreignField: "_id",
+            as: "sender"
+          }
+        },
+        {
+          $unwind: { path: "$sender", preserveNullAndEmptyArrays: true }
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "receiverId",
+            foreignField: "_id",
+            as: "receiver"
+          }
+        },
+        {
+          $unwind: { path: "$receiver", preserveNullAndEmptyArrays: true }
+        },
+        {
+          $project: {
+            _id: 1,
+            status: 1,
+            createdAt: 1,
+            sender: { $arrayElemAt: ["$sender", 0] },
+            receiver: { $arrayElemAt: ["$receiver", 0] }
+          }
+        }
+      ]).toArray();
+
+      const formattedConnections = connections.map(conn => ({
+        id: conn._id,
+        user: userId == conn.sender._id.toString() ? conn.receiver : conn.sender,
+        connectedAt: conn.createdAt
+      }));
+
+      res.json(formattedConnections);
     } catch (error) {
       res.status(500).json({ message: error.message });
     }
   });
 
-  // 💡 Get suggested users to connect with (no pagination)
+  // Get suggested users to connect with (no JWT)
   router.get('/getSuggestion', async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.query.userId;
 
-      // 🛑 Find all users already connected or requested
       const blocked = await connectsCollection.find({
         $or: [{ senderId: userId }, { receiverId: userId }]
       }).toArray();
 
       const blockedIds = blocked.map(conn =>
-        conn.senderId === userId ? conn.receiverId : conn.senderId
+        conn.senderId == userId ? conn.receiverId : conn.senderId
       );
 
-      // 🧠 Suggest users excluding blocked and self
       const users = await usersCollection.find({
-        _id: { $nin: [...blockedIds.map(id => new ObjectId(id)), new ObjectId(userId)] }
+        _id: { $nin: [...blockedIds, userId] }
       })
-        .project({ name: 1, email: 1 })
+        .project({ fullName: 1, email: 1, profileImage: 1, tags: 1 })
         .toArray();
 
       res.json(users);
+    } catch (error) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // Get all users (no JWT)
+router.get("/allUsers", async (req, res) => {
+  try {
+    const userId = req.query.userId;
+
+    if (!userId) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    console.log("🔍 Received userId:", userId);
+
+    // Convert userId to ObjectId properly
+    const users = await usersCollection
+      .find({ _id: { $ne: new ObjectId(userId) } })
+      .project({ fullName: 1, email: 1, profileImage: 1, tags: 1 })
+      .toArray();
+
+    console.log("👥 Total users found:", users.length);
+
+    res.status(200).json(users);
+  } catch (error) {
+    console.error("❌ Failed to fetch users:", error);
+    res.status(500).json({ message: "Failed to fetch users", error: error.message });
+  }
+});
+
+
+  // Remove connection
+  router.delete("/connect/:id", async (req, res) => {
+    try {
+      const id = req.params.id;
+      const connect = await connectsCollection.findOne({ _id: new ObjectId(id) });
+      if (!connect) {
+        return res.status(404).json({ message: "Connection not found" });
+      }
+
+      const { senderId, receiverId } = connect;
+
+      await connectsCollection.deleteOne({ _id: new ObjectId(id) });
+
+      await usersCollection.updateOne(
+        { _id: new ObjectId(senderId) },
+        { $pull: { friends: new ObjectId(receiverId) } }
+      );
+      await usersCollection.updateOne(
+        { _id: new ObjectId(receiverId) },
+        { $pull: { friends: new ObjectId(senderId) } }
+      );
+
+      res.status(200).json({ message: "Connection removed successfully" });
     } catch (error) {
       res.status(500).json({ message: error.message });
     }

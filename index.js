@@ -67,7 +67,6 @@ async function run() {
     // routes
     app.use("/v1/users", userRoutes(db));
     app.use("/v1/messageUsers", messageRoutes(db));
-    app.use("/v1/users", userRoutes(db))
     app.use("/v1/network", networkRoutes(db))
     app.use("/v1/favicon", faviconRoutes(db))
     app.use("/v1/logo", logoRoutes(db))

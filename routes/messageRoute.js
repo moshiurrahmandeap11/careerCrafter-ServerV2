@@ -8,11 +8,23 @@ module.exports = (db) => {
 
   const isHateSpeech = (message) => {
 
-    const badWords = [
-      'hate', 'racist', 'sexist', 'idiot', 'stupid', 'fuck', 'shit', 'bitch',
-      'হারামজাদা', 'শুয়োরের বাচ্চা', 'মাদারচোদ', 'ভোদা', 'গান্ডু',  
+const badWords = [
+  // English
+  'fuck', 'shit', 'bitch', 'bastard', 'asshole', 'dick', 'piss', 'cunt', 'slut',
+  'whore', 'fag', 'douche', 'idiot', 'stupid', 'moron', 'retard', 'damn', 'crap',
+  'screw', 'bollocks', 'bugger', 'twat', 'prick', 'cock', 'nigger', 'nigga', 'arse',
+  'pussy', 'faggot', 'slut', 'whore', 'motherfucker', 'son of a bitch', 'jerk',
 
-    ];
+  // Bangla (common abusive words)
+  'হারামজাদা', 'শুয়োরের বাচ্চা', 'মাদারচোদ', 'ভোদা', 'গান্ডু',
+  'চোদন', 'রাঙা', 'কুত্তা', 'কুত্তার বাচ্চা', 'মায়ের চোদন', 'বুক চোদা', 
+  'লেজ চোদা', 'চুদি', 'চোদন করা', 'হিন্দু শুয়োর', 'শুয়োর', 'খাট্টা', 'কামুক',
+  'চোদা', 'লাম্পট', 'লজ্জাহীন', 'বুদবুদ', 'কুপ্রকৃত', 'ধর্ষক', 'ধর্ষণ',
+  
+  // Mixed/general
+  'হায়েনা', 'গাধা', 'পাগল', 'বোকা', 'বেশ্যা', 'চুতিয়াপনা', 'মুর্ক', 'কুত্তারপোনা'
+];
+
 
     const lowerMessage = message.toLowerCase();
     return badWords.some(word => lowerMessage.includes(word.toLowerCase()));

@@ -7,6 +7,11 @@ module.exports = (db) => {
     const userProgressCollection = db.collection("user_progress");
     const chatHistoryCollection = db.collection("chat_history");
 
+    // ইউজার আইডি ভ্যালিডেশন ফাংশন
+    const validateUserId = (userId) => {
+        return userId && userId.startsWith('user_');
+    };
+
     // ==================== Learning Paths ====================
     
     // Get all learning paths
@@ -199,8 +204,18 @@ module.exports = (db) => {
     // Get user's learning progress
     router.get('/progress/:userId', async (req, res) => {
         try {
+            const userId = req.params.userId;
+
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
+
             const progress = await userProgressCollection
-                .find({ userId: req.params.userId })
+                .find({ userId: userId })
                 .toArray();
 
             res.json({
@@ -227,6 +242,14 @@ module.exports = (db) => {
                 timeSpent, 
                 score 
             } = req.body;
+
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
 
             const existingProgress = await userProgressCollection.findOne({
                 userId,
@@ -303,6 +326,14 @@ module.exports = (db) => {
         try {
             const { userId, itemId, itemType } = req.body;
 
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
+
             // Check if already enrolled
             const existing = await userProgressCollection.findOne({
                 userId,
@@ -358,9 +389,18 @@ module.exports = (db) => {
     router.get('/chat/:userId', async (req, res) => {
         try {
             const { limit = 50 } = req.query;
+            const requestedUserId = req.params.userId;
+
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(requestedUserId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
 
             const chatHistory = await chatHistoryCollection
-                .find({ userId: req.params.userId })
+                .find({ userId: requestedUserId })
                 .sort({ createdAt: -1 })
                 .limit(parseInt(limit))
                 .toArray();
@@ -382,6 +422,14 @@ module.exports = (db) => {
     router.post('/chat', async (req, res) => {
         try {
             const { userId, role, content, topic } = req.body;
+
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
 
             const message = {
                 userId,
@@ -410,8 +458,18 @@ module.exports = (db) => {
     // Delete chat history
     router.delete('/chat/:userId', async (req, res) => {
         try {
+            const requestedUserId = req.params.userId;
+
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(requestedUserId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
+
             await chatHistoryCollection.deleteMany({ 
-                userId: req.params.userId 
+                userId: requestedUserId 
             });
 
             res.json({
@@ -433,6 +491,14 @@ module.exports = (db) => {
     router.get('/stats/:userId', async (req, res) => {
         try {
             const userId = req.params.userId;
+
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
 
             const totalEnrolled = await userProgressCollection.countDocuments({ userId });
             
@@ -503,6 +569,14 @@ module.exports = (db) => {
     router.get('/recommendations/:userId', async (req, res) => {
         try {
             const userId = req.params.userId;
+
+            // ইউজার আইডি ভ্যালিডেশন
+            if (!validateUserId(userId)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Invalid user ID'
+                });
+            }
 
             // Get user's progress
             const userProgress = await userProgressCollection

@@ -130,8 +130,21 @@ module.exports = (db) => {
       // Save payment to database
       const result = await paymentsCollection.insertOne(paymentRecord);
       
-      // Update user's premium status and credits
-      await usersCollection.updateOne(
+      // Determine role based on plan
+      let userRole = "premium user";
+      let roleType = "premium";
+      
+      // You can add logic here to differentiate between different premium tiers
+      if (planId.includes("pro") || planId.includes("business")) {
+        userRole = "premium pro user";
+        roleType = "premium pro";
+      } else if (planId.includes("enterprise")) {
+        userRole = "enterprise user";
+        roleType = "enterprise";
+      }
+
+      // Update user's premium status, credits, and ROLE
+      const updateResult = await usersCollection.updateOne(
         { email: userEmail },
         { 
           $set: { 
@@ -140,7 +153,10 @@ module.exports = (db) => {
             planName: planName,
             billingCycle: billingCycle,
             premiumSince: new Date(),
-            subscriptionStatus: "active"
+            subscriptionStatus: "active",
+            role: userRole, // ✅ Role আপডেট করা হচ্ছে
+            roleType: roleType, // ✅ Role typeও সেট করা হচ্ছে
+            lastPaymentDate: new Date()
           },
           $inc: { 
             aiCredits: parseInt(creditsAwarded) || 0 
@@ -154,13 +170,17 @@ module.exports = (db) => {
         transactionId: paymentRecord.transactionId,
         amount: paymentRecord.amount,
         creditsAwarded: paymentRecord.creditsAwarded,
-        plan: paymentRecord.planName
+        plan: paymentRecord.planName,
+        roleUpdated: userRole,
+        matchedCount: updateResult.matchedCount,
+        modifiedCount: updateResult.modifiedCount
       });
 
       res.json({
         success: true,
         transactionId: paymentRecord.transactionId,
         creditsAwarded: paymentRecord.creditsAwarded,
+        roleUpdated: userRole,
         paymentRecord: paymentRecord
       });
 

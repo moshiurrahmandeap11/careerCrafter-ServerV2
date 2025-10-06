@@ -45,6 +45,7 @@ const faviconRoutes = require("./routes/favicon")
 const logoRoutes = require("./routes/logo")
 const sitemapRoutes = require("./routes/sitemap")
 const settingsRoute = require("./routes/settings")
+const paymentRoutes = require("./routes/payments");
 
 
 
@@ -72,9 +73,8 @@ async function run() {
     app.use("/v1/logo", logoRoutes(db))
     app.use("/v1/sitemap", sitemapRoutes(db))
     app.use("/v1/settings", settingsRoute(db))
+    app.use("/v1/payments", paymentRoutes(db));
     
-  
-
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);
   }

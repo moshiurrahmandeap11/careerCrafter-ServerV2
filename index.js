@@ -40,6 +40,10 @@ const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=
 // import routes
 const userRoutes = require("./routes/user");
 const networkRoutes = require("./routes/network");
+const faviconRoutes = require("./routes/favicon")
+const logoRoutes = require("./routes/logo")
+const sitemapRoutes = require("./routes/sitemap")
+const settingsRoute = require("./routes/settings")
 
 
 
@@ -63,6 +67,10 @@ async function run() {
     app.use("/v1/messageUsers", messageRoutes(db));
     app.use("/v1/users", userRoutes(db))
     app.use("/v1/network", networkRoutes(db))
+    app.use("/v1/favicon", faviconRoutes(db))
+    app.use("/v1/logo", logoRoutes(db))
+    app.use("/v1/sitemap", sitemapRoutes(db))
+    app.use("/v1/settings", settingsRoute(db))
     
   
 

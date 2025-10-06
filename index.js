@@ -23,6 +23,8 @@ const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=
 
 // import routes
 const userRoutes = require("./routes/user")
+const networkRoute = require("./routes/network");
+
 
 
 
@@ -43,6 +45,7 @@ async function run() {
 
     // routes
     app.use("/v1/users", userRoutes(db))
+    app.use('/v2',networkRoute(db))
     
   
 

@@ -36,14 +36,11 @@ const pass = process.env.DB_PASS;
 
 const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=true&w=majority&appName=MDB`;
 
-// import route
 
+// import routes
 const userRoutes = require("./routes/user");
-const messageRoutes = require("./routes/messageRoute");
-const logoRoutes = require("./routes/logo")
-const faviconRoutes = require("./routes/favicon")
-const sitemapRoutes = require("./routes/sitemap")
-const settingsRoutes = require("./routes/settings")
+const networkRoutes = require("./routes/network");
+
 
 
 const client = new MongoClient(uri, {
@@ -65,10 +62,9 @@ async function run() {
     app.use("/v1/users", userRoutes(db));
     app.use("/v1/messageUsers", messageRoutes(db));
     app.use("/v1/users", userRoutes(db))
-    app.use("/v1/logo", logoRoutes(db))
-    app.use("/v1/favicon", faviconRoutes(db))
-    app.use("/v1/sitemap", sitemapRoutes(db))
-    app.use("/v1/settings", settingsRoutes(db))
+    app.use("/v1/network", networkRoutes(db))
+    
+  
 
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);

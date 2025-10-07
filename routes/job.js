@@ -60,7 +60,8 @@ module.exports = (db) => {
                 title, 
                 description, 
                 salaryMin, 
-                salaryMax, 
+                salaryMax,
+                company,
                 image, 
                 userId, 
                 userName 
@@ -72,6 +73,7 @@ module.exports = (db) => {
                 salaryMin: parseInt(salaryMin),
                 salaryMax: parseInt(salaryMax),
                 image: image || '',
+                company,
                 userId,
                 userName,
                 status: 'active',
@@ -112,7 +114,8 @@ module.exports = (db) => {
                 title, 
                 description, 
                 salaryMin, 
-                salaryMax, 
+                salaryMax,
+                company,
                 image 
             } = req.body;
 
@@ -122,6 +125,7 @@ module.exports = (db) => {
                     description,
                     salaryMin: parseInt(salaryMin),
                     salaryMax: parseInt(salaryMax),
+                    company,
                     image: image || '',
                     updatedAt: new Date()
                 }

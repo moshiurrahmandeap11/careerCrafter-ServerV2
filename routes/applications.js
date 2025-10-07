@@ -203,5 +203,33 @@ module.exports = (db) => {
         }
     });
 
+    // Delete an application (Admin)
+router.delete('/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        const result = await applicationsCollection.deleteOne({ _id: new ObjectId(id) });
+
+        if (result.deletedCount === 0) {
+            return res.status(404).json({
+                success: false,
+                message: 'Application not found'
+            });
+        }
+
+        res.json({
+            success: true,
+            message: 'Application deleted successfully'
+        });
+    } catch (error) {
+        console.error('❌ Error deleting application:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error deleting application',
+            error: error.message
+        });
+    }
+});
+
+
     return router;
 };

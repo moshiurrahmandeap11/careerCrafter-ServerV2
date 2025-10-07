@@ -1,6 +1,6 @@
 const admin = require("../utils/firebase");
 
-const verifyFarebaseToken=async (req,res,next)=>{
+const verifyFirebaseToken=async (req,res,next)=>{
     const authHeader= req.headers.authorization;
     if(!authHeader) return res.status(401).json({message:'Unauthorized'})
 
@@ -15,6 +15,6 @@ const verifyFarebaseToken=async (req,res,next)=>{
             return res.status(403).json({message:"Invalid or expired token"})
         }
 }
-module.exports= verifyFarebaseToken;
+module.exports= verifyFirebaseToken;
 
 

@@ -69,6 +69,20 @@ module.exports = (db) => {
         return text && text.toString().trim() !== '' ? text.toString().trim() : defaultText;
       };
 
+      // Helper function to truncate text to fit width
+      const truncateTextToFit = (text, maxWidth, doc) => {
+        const ellipsis = '...';
+        if (doc.widthOfString(text) <= maxWidth) {
+          return text;
+        }
+        
+        let truncated = text;
+        while (truncated.length > ellipsis.length && doc.widthOfString(truncated + ellipsis) > maxWidth) {
+          truncated = truncated.slice(0, -1);
+        }
+        return truncated + ellipsis;
+      };
+
       let yPosition = 50;
 
       // ========== PERSONAL INFORMATION SECTION ==========
@@ -88,38 +102,91 @@ module.exports = (db) => {
         yPosition += 20;
       }
 
-      // Contact Information in ATS friendly format
-      const contactInfo = [];
+      // Contact Information in two columns with proper spacing
+      const leftColumn = [];
+      const rightColumn = [];
 
-      if (hasData(resumeData.personal.email)) {
-        contactInfo.push(getValidText(resumeData.personal.email));
-      }
+      // Left column data - phone, email, location
       if (hasData(resumeData.personal.phone)) {
-        contactInfo.push(getValidText(resumeData.personal.phone));
+        leftColumn.push({
+          text: getValidText(resumeData.personal.phone),
+          type: 'phone'
+        });
+      }
+      if (hasData(resumeData.personal.email)) {
+        leftColumn.push({
+          text: getValidText(resumeData.personal.email),
+          type: 'email'
+        });
       }
       if (hasData(resumeData.personal.location)) {
-        contactInfo.push(getValidText(resumeData.personal.location));
+        leftColumn.push({
+          text: getValidText(resumeData.personal.location),
+          type: 'location'
+        });
       }
+
+      // Right column data - portfolio, github
       if (hasData(resumeData.personal.website) && resumeData.personal.website !== resumeData.personal.summary) {
-        contactInfo.push(getValidText(resumeData.personal.website));
+        rightColumn.push({
+          text: getValidText(resumeData.personal.website),
+          type: 'website',
+          url: getValidText(resumeData.personal.website)
+        });
       }
       if (hasData(resumeData.personal.github) && resumeData.personal.github !== resumeData.personal.website) {
-        contactInfo.push(getValidText(resumeData.personal.github));
+        rightColumn.push({
+          text: getValidText(resumeData.personal.github),
+          type: 'github',
+          url: getValidText(resumeData.personal.github)
+        });
       }
 
-      if (contactInfo.length > 0) {
-        doc.fontSize(9).font('Helvetica')
-          .fillColor('#666666')
-          .text(contactInfo.join(' | '), 50, yPosition, {
-            width: 500,
-            align: 'left'
-          });
+      // Calculate maximum height needed for contact section
+      const maxRows = Math.max(leftColumn.length, rightColumn.length);
+      const rowHeight = 15;
+      const contactSectionHeight = maxRows * rowHeight;
 
-        yPosition += 25;
-      }
+      // Display contact info in two columns with proper boundaries
+      let contactY = yPosition;
 
-      // Reset text color
+      doc.fontSize(9).font('Helvetica')
+        .fillColor('#0066cc'); // Blue color for links
+
+      // Define column boundaries
+      const leftColumnX = 50;
+      const rightColumnX = 300; // Middle of the page for better balance
+      const maxColumnWidth = 200; // Maximum width for each column
+
+      // Display left column items
+      leftColumn.forEach((item, index) => {
+        const displayText = truncateTextToFit(item.text, maxColumnWidth, doc);
+        doc.text(displayText, leftColumnX, contactY + (index * rowHeight));
+        
+        // Add clickable links for email
+        if (item.type === 'email') {
+          const textWidth = doc.widthOfString(displayText, { fontSize: 9 });
+          doc.link(leftColumnX, contactY + (index * rowHeight), textWidth, 10, `mailto:${item.text}`);
+        }
+      });
+
+      // Display right column items
+      rightColumn.forEach((item, index) => {
+        const displayText = truncateTextToFit(item.text, maxColumnWidth, doc);
+        doc.text(displayText, rightColumnX, contactY + (index * rowHeight));
+        
+        // Add clickable links for website and github
+        if (item.type === 'website' || item.type === 'github') {
+          const textWidth = doc.widthOfString(displayText, { fontSize: 9 });
+          doc.link(rightColumnX, contactY + (index * rowHeight), textWidth, 10, item.url);
+        }
+      });
+
+      // Reset text color for other content
       doc.fillColor('#000000');
+
+      // Update yPosition based on the contact section height
+      yPosition = contactY + contactSectionHeight + 20;
 
       // ========== CAREER OBJECTIVE SECTION ==========
       if (hasData(resumeData.personal.summary) && resumeData.personal.summary !== resumeData.personal.website) {
@@ -155,7 +222,7 @@ module.exports = (db) => {
             lineGap: 3
           });
 
-        yPosition += summaryHeight + 25;
+        yPosition += summaryHeight;
       }
 
       // ========== TECHNICAL SKILLS SECTION ==========
@@ -167,7 +234,7 @@ module.exports = (db) => {
 
         // Section title
         doc.fontSize(12).font('Helvetica-Bold')
-          .text('TECHNICAL SKILLS', 50, yPosition);
+          .text('SKILLS', 50, yPosition);
 
         // Underline
         doc.moveTo(50, yPosition + 15)
@@ -177,22 +244,46 @@ module.exports = (db) => {
 
         yPosition += 30;
 
-        // Skills list (only names, no levels)
+        // Skills list - each skill in separate row with bullet points
         const validSkills = resumeData.skills
           .filter(skill => hasData(skill.name))
           .map(skill => getValidText(skill.name));
 
         if (validSkills.length > 0) {
-          const skillsText = validSkills.join(' • ');
+          // Calculate layout for skills
+          const skillsPerRow = 3;
+          const rowHeight = 20;
+          const columnWidth = 500 / skillsPerRow;
+          
+          let currentRow = 0;
+          let currentCol = 0;
 
-          doc.fontSize(10).font('Helvetica')
-            .text(skillsText, 50, yPosition, {
-              width: 500,
-              align: 'left',
-              lineGap: 2
+          validSkills.forEach((skill, index) => {
+            // Move to next row if current row is full
+            if (currentCol >= skillsPerRow) {
+              currentCol = 0;
+              currentRow++;
+            }
+
+            const xPosition = 50 + (currentCol * columnWidth);
+            const yPositionForSkill = yPosition + (currentRow * rowHeight);
+
+            // Bullet point
+            doc.fontSize(10).font('Helvetica')
+              .text('•', xPosition, yPositionForSkill);
+
+            // Skill text
+            doc.text(skill, xPosition + 10, yPositionForSkill, {
+              width: columnWidth - 15,
+              continued: false
             });
 
-          yPosition += doc.heightOfString(skillsText, { width: 500 }) + 25;
+            currentCol++;
+          });
+
+          // Calculate total height used by skills section
+          const totalRows = Math.ceil(validSkills.length / skillsPerRow);
+          yPosition += (totalRows * rowHeight) + 25;
         }
       }
 
@@ -201,6 +292,7 @@ module.exports = (db) => {
         const validProjects = resumeData.projects.filter(project =>
           hasData(project.name) ||
           hasData(project.technologies) ||
+          (project.features && project.features.length > 0) ||
           hasData(project.keyFeatures) ||
           hasData(project.description)
         );
@@ -212,7 +304,7 @@ module.exports = (db) => {
           }
 
           doc.fontSize(12).font('Helvetica-Bold')
-            .text('PROJECT EXPERIENCE', 50, yPosition);
+            .text('PROJECTS', 50, yPosition);
 
           doc.moveTo(50, yPosition + 15)
             .lineTo(550, yPosition + 15)
@@ -229,11 +321,41 @@ module.exports = (db) => {
 
             let projectY = yPosition;
 
-            // Project Name
+            // Project Name and Links in two columns
             if (hasData(project.name)) {
+              // Project name on left
               doc.fontSize(10).font('Helvetica-Bold')
                 .text(getValidText(project.name), 50, projectY);
 
+              // Links on right
+              const links = [];
+              if (hasData(project.liveLink)) links.push(`Live Demo`);
+              if (hasData(project.githubLink)) links.push(`GitHub`);
+
+              if (links.length > 0) {
+                const linksText = links.join(' | ');
+                const linksWidth = doc.widthOfString(linksText, { fontSize: 9 });
+                
+                doc.fontSize(9).font('Helvetica')
+                  .fillColor('#0066cc')
+                  .text(linksText, 550 - linksWidth, projectY);
+
+                // Add clickable links
+                let linkX = 550 - linksWidth;
+                if (hasData(project.liveLink)) {
+                  const liveText = "Live Demo";
+                  const liveWidth = doc.widthOfString(liveText, { fontSize: 9 });
+                  doc.link(linkX, projectY, liveWidth, 10, getValidText(project.liveLink));
+                  linkX += liveWidth + doc.widthOfString(" | ", { fontSize: 9 });
+                }
+                if (hasData(project.githubLink)) {
+                  const githubText = "GitHub";
+                  const githubWidth = doc.widthOfString(githubText, { fontSize: 9 });
+                  doc.link(linkX, projectY, githubWidth, 10, getValidText(project.githubLink));
+                }
+              }
+
+              doc.fillColor('#000000');
               projectY += 15;
             }
 
@@ -246,8 +368,33 @@ module.exports = (db) => {
               projectY += 15;
             }
 
-            // Key Features
-            if (hasData(project.keyFeatures)) {
+            // Key Features as bullet points
+            const features = project.features || [];
+            if (features.length > 0) {
+              doc.fontSize(9).font('Helvetica')
+                .fillColor('#000000')
+                .text('Key Features:', 50, projectY);
+
+              projectY += 12;
+
+              features.forEach(feature => {
+                if (hasData(feature)) {
+                  // Bullet point and feature text
+                  doc.text('• ', 50, projectY);
+                  const featureText = getValidText(feature);
+                  doc.text(featureText, 65, projectY, {
+                    width: 485,
+                    align: 'left',
+                    lineGap: 1
+                  });
+                  
+                  projectY += doc.heightOfString(featureText, { width: 485 }) + 5;
+                }
+              });
+              
+              projectY += 5;
+            } else if (hasData(project.keyFeatures)) {
+              // Fallback to old keyFeatures format
               doc.fontSize(9).font('Helvetica')
                 .fillColor('#000000')
                 .text(`Key Features: ${getValidText(project.keyFeatures)}`, 50, projectY, {
@@ -257,7 +404,7 @@ module.exports = (db) => {
               projectY += doc.heightOfString(`Key Features: ${getValidText(project.keyFeatures)}`, { width: 500 }) + 10;
             }
 
-            // Description - FIXED: Always show if it has data, regardless of content
+            // Description
             if (hasData(project.description)) {
               doc.fontSize(9).font('Helvetica')
                 .text(getValidText(project.description), 50, projectY, {
@@ -269,20 +416,6 @@ module.exports = (db) => {
               projectY += doc.heightOfString(getValidText(project.description), { width: 500 }) + 15;
             }
 
-            // Links
-            const links = [];
-            if (hasData(project.liveLink)) links.push(`Live: ${getValidText(project.liveLink)}`);
-            if (hasData(project.githubLink)) links.push(`GitHub: ${getValidText(project.githubLink)}`);
-
-            if (links.length > 0) {
-              doc.fontSize(8).font('Helvetica')
-                .fillColor('#0066cc')
-                .text(links.join(' | '), 50, projectY);
-
-              projectY += 12;
-            }
-
-            doc.fillColor('#000000');
             yPosition = projectY;
 
             // Add space between projects but not after last one

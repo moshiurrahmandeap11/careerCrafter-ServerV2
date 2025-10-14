@@ -8,13 +8,12 @@ module.exports = (db) => {
   const usersCollection = db.collection("users");
   const connectsCollection = db.collection("connects");
 
-  // ✅ Send a connection request
+  // Send a connection request (no JWT, so senderId must be passed in body)
   router.post('/connectReq', async (req, res) => {
     try {
-      const { receiverId } = req.body;
-      const senderId = req.user.id;
+      const { receiverId, senderId } = req.body; // pass senderId from frontend
 
-      // 🔍 Check if request already exists (either direction)
+      // Check if request already exists
       const exist = await connectsCollection.findOne({
         $or: [
           { senderId, receiverId },
@@ -40,10 +39,10 @@ module.exports = (db) => {
 
 
 
-  // 📥 Get all pending requests for the logged-in user
+  // Get all pending requests for a user (pass userId as query param)
   router.get('/pendingReq', async (req, res) => {
     try {
-      const userId = req.user.id;
+      const userId = req.query.userId;
       const pending = await connectsCollection
         .find({ receiverId: userId, status: "pending" })
         .toArray();
@@ -55,16 +54,33 @@ module.exports = (db) => {
 
 
 
-  // ✅ Accept a connection request
+  // Accept connection request (pass senderId, receiverId in body)
   router.patch('/accept/:id', async (req, res) => {
     try {
       const id = req.params.id;
-      const updated = await connectsCollection.findOneAndUpdate(
+      const updatedConnect = await connectsCollection.findOneAndUpdate(
         { _id: new ObjectId(id) },
         { $set: { status: "accepted" } },
         { returnDocument: "after" }
       );
-      res.json(updated.value);
+
+      if (!updatedConnect.value) {
+        return res.status(404).json({ message: "Connection request not found" });
+      }
+
+      const { senderId, receiverId } = updatedConnect.value;
+
+      // Add to friends array
+      await usersCollection.updateOne(
+        { _id: new ObjectId(receiverId) },
+        { $addToSet: { friends: new ObjectId(senderId) } }
+      );
+      await usersCollection.updateOne(
+        { _id: new ObjectId(senderId) },
+        { $addToSet: { friends: new ObjectId(receiverId) } }
+      );
+
+      res.json(updatedConnect.value);
     } catch (error) {
       res.status(500).json({ message: error.message });
     }
@@ -72,7 +88,7 @@ module.exports = (db) => {
 
 
 
-  // ❌ Ignore a connection request
+  // Ignore connection request
   router.patch("/ignore/:id", async (req, res) => {
     try {
       const id = req.params.id;
@@ -90,15 +106,57 @@ module.exports = (db) => {
 
 
 
-  // 🔗 Get all accepted connections for the logged-in user
+  // Get all connections for a user (pass userId as query param)
   router.get("/myConnections", async (req, res) => {
     try {
-      const userId = req.user.id;
-      const connections = await connectsCollection.find({
-        status: "accepted",
-        $or: [{ senderId: userId }, { receiverId: userId }]
-      }).toArray();
-      res.json(connections);
+      const userId = req.query.userId;
+      const connections = await connectsCollection.aggregate([
+        {
+          $match: {
+            status: "accepted",
+            $or: [{ senderId: userId }, { receiverId: userId }]
+          }
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "senderId",
+            foreignField: "_id",
+            as: "sender"
+          }
+        },
+        {
+          $unwind: { path: "$sender", preserveNullAndEmptyArrays: true }
+        },
+        {
+          $lookup: {
+            from: "users",
+            localField: "receiverId",
+            foreignField: "_id",
+            as: "receiver"
+          }
+        },
+        {
+          $unwind: { path: "$receiver", preserveNullAndEmptyArrays: true }
+        },
+        {
+          $project: {
+            _id: 1,
+            status: 1,
+            createdAt: 1,
+            sender: { $arrayElemAt: ["$sender", 0] },
+            receiver: { $arrayElemAt: ["$receiver", 0] }
+          }
+        }
+      ]).toArray();
+
+      const formattedConnections = connections.map(conn => ({
+        id: conn._id,
+        user: userId == conn.sender._id.toString() ? conn.receiver : conn.sender,
+        connectedAt: conn.createdAt
+      }));
+
+      res.json(formattedConnections);
     } catch (error) {
       res.status(500).json({ message: error.message });
     }
@@ -108,34 +166,25 @@ module.exports = (db) => {
 
 
   // 💡 Get suggested users to connect with (no pagination)
-  router.get('/getSuggestion',verifyFirebaseToken, async (req, res) => {
+  router.get('/getSuggestion', async (req, res) => {
     try {
-    const userId = req.user && (req.user.uid || req.user.id);
-    if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const userId = req.user.id;
 
-    // fetch connects involving this user
-    const blockedDocs = await connectsCollection.find({
-      $or: [{ senderId: userId }, { receiverId: userId }]
-    }).toArray();
+      // 🛑 Find all users already connected or requested
+      const blocked = await connectsCollection.find({
+        $or: [{ senderId: userId }, { receiverId: userId }]
+      }).toArray();
 
-    // build deduplicated blocked id set (strings)
-    const blockedSet = new Set();
-    for (const c of blockedDocs) {
-      if (c.senderId) blockedSet.add(c.senderId);
-      if (c.receiverId) blockedSet.add(c.receiverId);
-    }
-    blockedSet.delete(userId); // exclude self
+      const blockedIds = blocked.map(conn =>
+        conn.senderId === userId ? conn.receiverId : conn.senderId
+      );
 
-    const blockedArr = Array.from(blockedSet);
-    // filter users by string _id field (no ObjectId conversion)
-    const filter = blockedArr.length
-      ? { _id: { $nin: blockedArr.concat([userId]) } }
-      : { _id: { $ne: userId } };
-
-    // project fields you want to return
-    const users = await usersCollection.find(filter)
-      .project({ _id: 1, fullName: 1, email: 1, profileImage: 1 })
-      .toArray();
+      // 🧠 Suggest users excluding blocked and self
+      const users = await usersCollection.find({
+        _id: { $nin: [...blockedIds.map(id => new ObjectId(id)), new ObjectId(userId)] }
+      })
+        .project({ name: 1, email: 1 })
+        .toArray();
 
     res.json(users);
   } catch (err) {
@@ -144,8 +193,6 @@ module.exports = (db) => {
   }
 
   });
-
- 
 
   return router;
 };

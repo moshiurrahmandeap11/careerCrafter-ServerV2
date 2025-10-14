@@ -1,4 +1,5 @@
 const express = require("express");
+const admin = require("firebase-admin");
 const { ObjectId } = require("mongodb");
 
 const router = express.Router();
@@ -90,19 +91,90 @@ router.patch("/email/:email", async (req, res) => {
 });
 
 
-  // Delete user by ID
+// Delete user by ID (Mongo + Firebase)
   router.delete("/:id", async (req, res) => {
     try {
       const id = req.params.id;
-      const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
-      if (result.deletedCount === 0) {
+
+      // find the user in MongoDB first
+      const user = await usersCollection.findOne({ _id: new ObjectId(id) });
+      if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
-      res.status(200).json({ message: "User deleted successfully", result });
+
+      // Delete from MongoDB
+      const result = await usersCollection.deleteOne({ _id: new ObjectId(id) });
+
+      // Firebase Auth delete (if exists)
+      if (user.email) {
+        try {
+          const firebaseUser = await admin.auth().getUserByEmail(user.email);
+          if (firebaseUser) {
+            await admin.auth().deleteUser(firebaseUser.uid);
+            console.log(`✅ Firebase user deleted: ${user.email}`);
+          }
+        } catch (firebaseError) {
+          console.warn(`⚠️ Firebase deletion failed or user not found: ${user.email}`);
+        }
+      }
+
+      res.status(200).json({ message: "User deleted from MongoDB & Firebase", result });
     } catch (error) {
-      res.status(500).json({ message: "Failed to delete user", error });
+      console.error("Delete failed:", error);
+      res.status(500).json({ message: "Failed to delete user", error: error.message });
     }
   });
-  
+
+
+
+
+
+router.get("/allUsersForNetwork", async (req, res) => {
+  try {
+    const { userId } = req.query;
+
+    if (!userId) {
+      return res.status(400).json({ message: "UserId is required" });
+    }
+
+    let objectId;
+    try {
+      objectId = new ObjectId(userId);
+    } catch (err) {
+      return res.status(400).json({ message: "Invalid userId format", error: err.message });
+    }
+
+    if (!usersCollection) {
+      console.error("usersCollection is not initialized!");
+      return res.status(500).json({ message: "Internal server error: usersCollection not found" });
+    }
+
+    // fetch current user to ensure it exists
+    const currentUser = await usersCollection.findOne({ _id: objectId });
+    if (!currentUser) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const users = await usersCollection
+      .find({ _id: { $ne: objectId } })
+      .project({ fullName: 1, email: 1, profileImage: 1, tags: 1 })
+      .toArray();
+
+    console.log("Fetched users for network:", users.length);
+
+    res.status(200).json(users);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    res.status(500).json({ message: "Failed to fetch users", error: error.toString() });
+  }
+});
+
+
+
+
+
+
   return router;
 };
+  
+

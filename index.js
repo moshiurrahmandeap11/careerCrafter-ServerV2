@@ -9,6 +9,16 @@ const { Server } = require("socket.io");
 const { createServer } = require("node:http");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 
+const admin = require("firebase-admin");
+// decode base64 key from .env
+const serviceAccount = JSON.parse(
+  Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64, "base64").toString("utf8")
+);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 const app = express();
 const port = process.env.PORT || 3000;
 const server = createServer(app);
@@ -29,7 +39,16 @@ const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=
 
 // import routes
 const userRoutes = require("./routes/user");
+const messageRoutes = require("./routes/messageRoute")
 const networkRoutes = require("./routes/network");
+const faviconRoutes = require("./routes/favicon")
+const logoRoutes = require("./routes/logo")
+const sitemapRoutes = require("./routes/sitemap")
+const settingsRoute = require("./routes/settings")
+const paymentRoutes = require("./routes/payments");
+const learnRoutes = require("./routes/learn")
+const jobsRoutes = require("./routes/job")
+const applicationRoutes = require("./routes/applications")
 
 
 
@@ -51,11 +70,16 @@ async function run() {
     // routes
     app.use("/v1/users", userRoutes(db));
     app.use("/v1/messageUsers", messageRoutes(db));
-    app.use("/v1/users", userRoutes(db))
     app.use("/v1/network", networkRoutes(db))
+    app.use("/v1/favicon", faviconRoutes(db))
+    app.use("/v1/logo", logoRoutes(db))
+    app.use("/v1/sitemap", sitemapRoutes(db))
+    app.use("/v1/settings", settingsRoute(db))
+    app.use("/v1/payments", paymentRoutes(db));
+    app.use("/v1/learn", learnRoutes(db))
+    app.use("/v1/jobs", jobsRoutes(db))
+    app.use("/v1/applications", applicationRoutes(db))
     
-  
-
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);
   }

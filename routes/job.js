@@ -53,7 +53,7 @@ module.exports = (db) => {
         }
     });
 
-    // Create new job
+    // Create new job with AI-friendly fields
     router.post('/', async (req, res) => {
         try {
             const { 
@@ -62,20 +62,64 @@ module.exports = (db) => {
                 salaryMin, 
                 salaryMax,
                 company,
-                image, 
+                image,
                 userId, 
-                userName 
+                userName,
+                // AI matching fields
+                jobType = 'full-time',
+                location = '',
+                workMode = 'remote',
+                experienceLevel = 'mid',
+                educationLevel = 'bachelor',
+                requiredSkills = [],
+                preferredSkills = [],
+                responsibilities = '',
+                benefits = '',
+                industry = 'technology',
+                tags = []
             } = req.body;
 
+            // Validation
+            if (!company || !title || !description) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Company, title, and description are required'
+                });
+            }
+
+            if (parseInt(salaryMin) > parseInt(salaryMax)) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Minimum salary cannot be greater than maximum salary'
+                });
+            }
+
             const newJob = {
-                title,
-                description,
+                title: title.trim(),
+                description: description.trim(),
                 salaryMin: parseInt(salaryMin),
                 salaryMax: parseInt(salaryMax),
                 image: image || '',
-                company,
+                company: company.trim(),
                 userId,
-                userName,
+                userName: userName || 'Unknown User',
+                // AI matching fields
+                jobType,
+                location,
+                workMode,
+                experienceLevel,
+                educationLevel,
+                requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [requiredSkills],
+                preferredSkills: Array.isArray(preferredSkills) ? preferredSkills : [preferredSkills],
+                responsibilities,
+                benefits,
+                industry,
+                tags: Array.isArray(tags) ? tags : [tags],
+                // AI metadata
+                aiCompatible: true,
+                lastMatched: null,
+                matchScore: 0,
+                // Original fields
                 status: 'active',
                 applications: 0,
                 views: 0,
@@ -83,22 +127,18 @@ module.exports = (db) => {
                 updatedAt: new Date()
             };
 
-            // Validate salary range
-            if (newJob.salaryMin > newJob.salaryMax) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'Minimum salary cannot be greater than maximum salary'
-                });
-            }
-
             const result = await jobsCollection.insertOne(newJob);
+
+            // Get the inserted job with ID
+            const insertedJob = await jobsCollection.findOne({ _id: result.insertedId });
 
             res.status(201).json({
                 success: true,
                 message: 'Job posted successfully',
-                data: { _id: result.insertedId, ...newJob }
+                data: insertedJob
             });
         } catch (error) {
+            console.error('Error creating job:', error);
             res.status(500).json({
                 success: false,
                 message: 'Error creating job',
@@ -116,28 +156,52 @@ module.exports = (db) => {
                 salaryMin, 
                 salaryMax,
                 company,
-                image 
+                image,
+                jobType,
+                location,
+                workMode,
+                experienceLevel,
+                educationLevel,
+                requiredSkills,
+                preferredSkills,
+                responsibilities,
+                benefits,
+                industry,
+                tags
             } = req.body;
 
-            const updateData = {
-                $set: {
-                    title,
-                    description,
-                    salaryMin: parseInt(salaryMin),
-                    salaryMax: parseInt(salaryMax),
-                    company,
-                    image: image || '',
-                    updatedAt: new Date()
-                }
-            };
-
             // Validate salary range
-            if (updateData.$set.salaryMin > updateData.$set.salaryMax) {
+            if (parseInt(salaryMin) > parseInt(salaryMax)) {
                 return res.status(400).json({
                     success: false,
                     message: 'Minimum salary cannot be greater than maximum salary'
                 });
             }
+
+            const updateData = {
+                $set: {
+                    title: title.trim(),
+                    description: description.trim(),
+                    salaryMin: parseInt(salaryMin),
+                    salaryMax: parseInt(salaryMax),
+                    company: company.trim(),
+                    image: image || '',
+                    // AI matching fields
+                    jobType,
+                    location,
+                    workMode,
+                    experienceLevel,
+                    educationLevel,
+                    requiredSkills: Array.isArray(requiredSkills) ? requiredSkills : [requiredSkills],
+                    preferredSkills: Array.isArray(preferredSkills) ? preferredSkills : [preferredSkills],
+                    responsibilities,
+                    benefits,
+                    industry,
+                    tags: Array.isArray(tags) ? tags : [tags],
+                    // Update timestamp
+                    updatedAt: new Date()
+                }
+            };
 
             const result = await jobsCollection.updateOne(
                 { _id: new ObjectId(req.params.id) },
@@ -161,6 +225,7 @@ module.exports = (db) => {
                 data: updatedJob
             });
         } catch (error) {
+            console.error('Error updating job:', error);
             res.status(500).json({
                 success: false,
                 message: 'Error updating job',
@@ -188,6 +253,7 @@ module.exports = (db) => {
                 message: 'Job deleted successfully'
             });
         } catch (error) {
+            console.error('Error deleting job:', error);
             res.status(500).json({
                 success: false,
                 message: 'Error deleting job',
@@ -206,7 +272,8 @@ module.exports = (db) => {
             if (search) {
                 filter.$or = [
                     { title: { $regex: search, $options: 'i' } },
-                    { description: { $regex: search, $options: 'i' } }
+                    { description: { $regex: search, $options: 'i' } },
+                    { company: { $regex: search, $options: 'i' } }
                 ];
             }
 
@@ -229,6 +296,7 @@ module.exports = (db) => {
                 }
             });
         } catch (error) {
+            console.error('Error fetching jobs:', error);
             res.status(500).json({
                 success: false,
                 message: 'Error fetching jobs',

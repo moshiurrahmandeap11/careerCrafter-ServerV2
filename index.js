@@ -49,6 +49,9 @@ const paymentRoutes = require("./routes/payments");
 const learnRoutes = require("./routes/learn")
 const jobsRoutes = require("./routes/job")
 const applicationRoutes = require("./routes/applications")
+const aiJobRoutes = require("./routes/ai-job")
+const resumeRoutes = require("./routes/resume")
+const resumeCheckRoutes = require('./routes/resumeCheck');
 
 
 
@@ -79,7 +82,10 @@ async function run() {
     app.use("/v1/learn", learnRoutes(db))
     app.use("/v1/jobs", jobsRoutes(db))
     app.use("/v1/applications", applicationRoutes(db))
-    
+    app.use("/v1/ai-jobs", aiJobRoutes(db))
+    app.use("/v1/resumes", resumeRoutes(db))
+    app.use("/v1/resume-check", resumeCheckRoutes(db));
+
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);
   }

@@ -7,7 +7,7 @@ module.exports = (db) => {
     const userProgressCollection = db.collection("user_progress");
     const chatHistoryCollection = db.collection("chat_history");
 
-    // ইউজার আইডি ভ্যালিডেশন ফাংশন
+
     const validateUserId = (userId) => {
         return userId && userId.startsWith('user_');
     };

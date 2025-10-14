@@ -31,7 +31,6 @@ const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=
 const userRoutes = require("./routes/user");
 const messageRoutes = require("./routes/messageRoute");
 
-const userRoutes = require("./routes/user")
 const logoRoutes = require("./routes/logo")
 const faviconRoutes = require("./routes/favicon")
 const sitemapRoutes = require("./routes/sitemap")

@@ -1,5 +1,6 @@
 const express = require("express");
 const { ObjectId } = require("mongodb");
+const verifyFirebaseToken = require("../middleWare/verifyFirebaseToken");
 
 const router = express.Router();
 
@@ -36,6 +37,8 @@ module.exports = (db) => {
     }
   });
 
+
+
   // Get all pending requests for a user (pass userId as query param)
   router.get('/pendingReq', async (req, res) => {
     try {
@@ -48,6 +51,8 @@ module.exports = (db) => {
       res.status(500).json({ message: error.message });
     }
   });
+
+
 
   // Accept connection request (pass senderId, receiverId in body)
   router.patch('/accept/:id', async (req, res) => {
@@ -81,6 +86,8 @@ module.exports = (db) => {
     }
   });
 
+
+
   // Ignore connection request
   router.patch("/ignore/:id", async (req, res) => {
     try {
@@ -95,6 +102,9 @@ module.exports = (db) => {
       res.status(500).json({ message: error.message });
     }
   });
+
+
+
 
   // Get all connections for a user (pass userId as query param)
   router.get("/myConnections", async (req, res) => {
@@ -152,84 +162,36 @@ module.exports = (db) => {
     }
   });
 
-  // Get suggested users to connect with (no JWT)
+
+
+
+  // 💡 Get suggested users to connect with (no pagination)
   router.get('/getSuggestion', async (req, res) => {
     try {
-      const userId = req.query.userId;
+      const userId = req.user.id;
 
+      // 🛑 Find all users already connected or requested
       const blocked = await connectsCollection.find({
         $or: [{ senderId: userId }, { receiverId: userId }]
       }).toArray();
 
       const blockedIds = blocked.map(conn =>
-        conn.senderId == userId ? conn.receiverId : conn.senderId
+        conn.senderId === userId ? conn.receiverId : conn.senderId
       );
 
+      // 🧠 Suggest users excluding blocked and self
       const users = await usersCollection.find({
-        _id: { $nin: [...blockedIds, userId] }
+        _id: { $nin: [...blockedIds.map(id => new ObjectId(id)), new ObjectId(userId)] }
       })
-        .project({ fullName: 1, email: 1, profileImage: 1, tags: 1 })
+        .project({ name: 1, email: 1 })
         .toArray();
 
-      res.json(users);
-    } catch (error) {
-      res.status(500).json({ message: error.message });
-    }
-  });
-
-  // Get all users (no JWT)
-router.get("/allUsers", async (req, res) => {
-  try {
-    const userId = req.query.userId;
-
-    if (!userId) {
-      return res.status(400).json({ message: "User ID is required" });
-    }
-
-    console.log("🔍 Received userId:", userId);
-
-    // Convert userId to ObjectId properly
-    const users = await usersCollection
-      .find({ _id: { $ne: new ObjectId(userId) } })
-      .project({ fullName: 1, email: 1, profileImage: 1, tags: 1 })
-      .toArray();
-
-    console.log("👥 Total users found:", users.length);
-
-    res.status(200).json(users);
-  } catch (error) {
-    console.error("❌ Failed to fetch users:", error);
-    res.status(500).json({ message: "Failed to fetch users", error: error.message });
+    res.json(users);
+  } catch (err) {
+    console.error('getSuggestion error', err);
+    res.status(500).json({ message: err.message });
   }
-});
 
-
-  // Remove connection
-  router.delete("/connect/:id", async (req, res) => {
-    try {
-      const id = req.params.id;
-      const connect = await connectsCollection.findOne({ _id: new ObjectId(id) });
-      if (!connect) {
-        return res.status(404).json({ message: "Connection not found" });
-      }
-
-      const { senderId, receiverId } = connect;
-
-      await connectsCollection.deleteOne({ _id: new ObjectId(id) });
-
-      await usersCollection.updateOne(
-        { _id: new ObjectId(senderId) },
-        { $pull: { friends: new ObjectId(receiverId) } }
-      );
-      await usersCollection.updateOne(
-        { _id: new ObjectId(receiverId) },
-        { $pull: { friends: new ObjectId(senderId) } }
-      );
-
-      res.status(200).json({ message: "Connection removed successfully" });
-    } catch (error) {
-      res.status(500).json({ message: error.message });
-    }
   });
 
   return router;

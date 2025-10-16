@@ -90,6 +90,7 @@ async function run() {
 }
 
 run().catch(console.dir);
+// index.js (updated socket events)
 io.on("connection", (socket) => {
   console.log("a user connected", socket.id);
 
@@ -99,6 +100,41 @@ io.on("connection", (socket) => {
     console.log(`${userEmail} joined their private room`);
   });
 
+  // Call-related socket events
+  socket.on("start-call", (data) => {
+    const { to, from, callType, offer } = data;
+    socket.to(to).emit("incoming-call", {
+      callerInfo: from,
+      callType,
+      offer
+    });
+  });
+
+  socket.on("accept-call", (data) => {
+    const { to, answer } = data;
+    socket.to(to).emit("call-accepted", {
+      answer
+    });
+  });
+
+  socket.on("reject-call", (data) => {
+    const { to } = data;
+    socket.to(to).emit("call-rejected");
+  });
+
+  socket.on("end-call", (data) => {
+    const { to } = data;
+    socket.to(to).emit("call-ended");
+  });
+
+  socket.on("ice-candidate", (data) => {
+    const { target, candidate } = data;
+    socket.to(target).emit("ice-candidate", {
+      candidate
+    });
+  });
+
+  // Existing message events
   socket.on("privateMessage", async ({ senderEmail, receiverEmail, text }) => {
     try {
       const db = client.db("careerCrafter");

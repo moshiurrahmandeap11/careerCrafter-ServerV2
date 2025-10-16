@@ -29,7 +29,7 @@ module.exports = (db) => {
     }
   });
 
-  // ✅ Get user by email
+  //  Get user by email
   router.get("/email/:email", async (req, res) => {
     try {
       const email = req.params.email;

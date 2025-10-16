@@ -38,9 +38,38 @@ module.exports = (db) => {
 
 
   // 💡 Get suggested users to connect with (no pagination)
+
+  router.get('/suggestion-connect',verifyFirebaseToken, async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    
+    const findUser = await usersCollection.findOne({ email });
+
+    if (!findUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    
+    const userPurpose = findUser.purpose;
+
+    
+    const suggestedUsers = await usersCollection
+      .find({ purpose: userPurpose, email: { $ne: email } })
+      .toArray();
+
+   
+    res.send(suggestedUsers);
+
+  } catch (err) {
+    console.error('getSuggestion error', err);
+    res.status(500).json({ message: err.message });
+  }
+});
+
   
 
-
+// get all catagory people
   router.get('/all-connect-users',verifyFirebaseToken, async(req,res)=>{
     try{
       const email=req.query.email

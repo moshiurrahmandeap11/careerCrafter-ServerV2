@@ -9,6 +9,16 @@ const { Server } = require("socket.io");
 const { createServer } = require("node:http");
 const { MongoClient, ServerApiVersion } = require("mongodb");
 
+const admin = require("firebase-admin");
+// decode base64 key from .env
+const serviceAccount = JSON.parse(
+  Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_KEY_BASE64, "base64").toString("utf8")
+);
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
 const app = express();
 const port = process.env.PORT || 3000;
 const server = createServer(app);
@@ -26,15 +36,23 @@ const pass = process.env.DB_PASS;
 
 const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=true&w=majority&appName=MDB`;
 
+
 // import routes
-
 const userRoutes = require("./routes/user");
-const messageRoutes = require("./routes/messageRoute");
-
-const logoRoutes = require("./routes/logo")
+const messageRoutes = require("./routes/messageRoute")
+const networkRoutes = require("./routes/network");
 const faviconRoutes = require("./routes/favicon")
+const logoRoutes = require("./routes/logo")
 const sitemapRoutes = require("./routes/sitemap")
-const settingsRoutes = require("./routes/settings")
+const settingsRoute = require("./routes/settings")
+const paymentRoutes = require("./routes/payments");
+const learnRoutes = require("./routes/learn")
+const jobsRoutes = require("./routes/job")
+const applicationRoutes = require("./routes/applications")
+const aiJobRoutes = require("./routes/ai-job")
+const resumeRoutes = require("./routes/resume")
+const resumeCheckRoutes = require('./routes/resumeCheck');
+
 
 
 const client = new MongoClient(uri, {
@@ -55,11 +73,18 @@ async function run() {
     // routes
     app.use("/v1/users", userRoutes(db));
     app.use("/v1/messageUsers", messageRoutes(db));
-    app.use("/v1/users", userRoutes(db))
-    app.use("/v1/logo", logoRoutes(db))
+    app.use("/v1/network", networkRoutes(db))
     app.use("/v1/favicon", faviconRoutes(db))
+    app.use("/v1/logo", logoRoutes(db))
     app.use("/v1/sitemap", sitemapRoutes(db))
-    app.use("/v1/settings", settingsRoutes(db))
+    app.use("/v1/settings", settingsRoute(db))
+    app.use("/v1/payments", paymentRoutes(db));
+    app.use("/v1/learn", learnRoutes(db))
+    app.use("/v1/jobs", jobsRoutes(db))
+    app.use("/v1/applications", applicationRoutes(db))
+    app.use("/v1/ai-jobs", aiJobRoutes(db))
+    app.use("/v1/resumes", resumeRoutes(db))
+    app.use("/v1/resume-check", resumeCheckRoutes(db));
 
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);

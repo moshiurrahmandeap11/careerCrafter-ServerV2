@@ -1,0 +1,58 @@
+const express = require("express");
+const { ObjectId } = require("mongodb");
+const verifyFirebaseToken = require("../middleWare/verifyFirebaseToken");
+
+const router = express.Router();
+
+module.exports = (db) => {
+  const usersCollection = db.collection("users");
+  const connectsCollection = db.collection("connects");
+
+  // Send a connection request (no JWT, so senderId must be passed in body)
+  
+
+
+
+  // Get all pending requests for a user (pass userId as query param)
+  
+
+
+
+  // Accept connection request (pass senderId, receiverId in body)
+  
+
+      
+
+
+
+  // Ignore connection request
+ 
+
+
+
+
+  // Get all connections for a user (pass userId as query param)
+  
+
+
+
+
+  // 💡 Get suggested users to connect with (no pagination)
+  
+
+
+  router.get('/all-connect-users',verifyFirebaseToken, async(req,res)=>{
+    try{
+      const email=req.query.email
+      const query = email ? { email: { $ne: email } } : {};
+         const result=await usersCollection.find(query).toArray()
+         res.send(result)
+    }
+    catch (err) {
+    console.error('getSuggestion error', err);
+    res.status(500).json({ message: err.message });
+  }
+  })
+
+  return router;
+};

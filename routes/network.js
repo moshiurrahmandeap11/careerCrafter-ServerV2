@@ -6,9 +6,46 @@ const router = express.Router();
 
 module.exports = (db) => {
   const usersCollection = db.collection("users");
-  const connectsCollection = db.collection("connects");
+  
+  const pendingConnectionsCollection=db.collection('pendingConnectRequest')
 
-  // Send a connection request (no JWT, so senderId must be passed in body)
+  // Send a connection request 
+  router.post('/send-connect-request', async (req, res) => {
+  try {
+    const { senderEmail, receiverEmail } = req.body;
+
+    // 
+    if (senderEmail === receiverEmail) {
+      return res.status(400).send({ message: "You cannot connect with yourself!" });
+    }
+
+    // 
+    const existing = await pendingConnectionsCollection.findOne({
+      $or: [
+        { senderEmail, receiverEmail },
+        { senderEmail: receiverEmail, receiverEmail: senderEmail }
+      ]
+    });
+
+    if (existing) {
+      return res.status(400).send({ message: "Connection request already exists!" });
+    }
+
+    // 
+    const result = await pendingConnectionsCollection.insertOne({
+      senderEmail,
+      receiverEmail,
+      status: "pending",
+      createdAt: new Date()
+    });
+
+    res.send({ success: true, message: "Connection request sent successfully!", result });
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Failed to send connection request" });
+  }
+});
+
   
 
 

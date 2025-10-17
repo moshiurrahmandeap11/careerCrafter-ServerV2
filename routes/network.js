@@ -50,8 +50,36 @@ module.exports = (db) => {
 
 
 
-  // Get all pending requests for a user (pass userId as query param)
+  // Get all pending requests for a user (pass email as query)
   
+  router.get('/pending-requests', async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    
+    const pendingRequests = await pendingConnectionsCollection
+      .find({
+        status: "pending",
+        receiverEmail: email   
+      })
+      .toArray();
+
+    const senderEmails = pendingRequests.map(req => req.senderEmail);
+
+    
+    const senders = await usersCollection
+      .find({ email: { $in: senderEmails } })
+      .project({ fullName: 1, email: 1, profileImage: 1, role: 1 })
+      .toArray();
+
+    res.send(senders);
+  } catch (error) {
+    console.error(error);
+    res.status(500).send({ message: "Failed to fetch pending requests" });
+  }
+});
+
+
 
 
 

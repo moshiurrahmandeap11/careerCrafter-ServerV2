@@ -110,6 +110,7 @@ router.post('/send-connect-request', verifyFirebaseToken, async (req, res) => {
         .sort({ createdAt: -1 })
         .toArray();
 
+
       // Populate sender details
       const requestsWithDetails = await Promise.all(
         pendingRequests.map(async (request) => {
@@ -123,6 +124,7 @@ router.post('/send-connect-request', verifyFirebaseToken, async (req, res) => {
           };
         })
       );
+
 
       res.send(requestsWithDetails);
     } catch (error) {

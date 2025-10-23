@@ -54,6 +54,7 @@ const resumeRoutes = require("./routes/resume")
 const resumeCheckRoutes = require('./routes/resumeCheck');
 const aichatbotCollection = require("./routes/ai-chatbot")
 const cvRoutes = require('./routes/cv');
+const postForHired = require("./routes/postForHired");
 
 
 
@@ -90,6 +91,7 @@ async function run() {
     app.use("/v1/resume-check", resumeCheckRoutes(db));
     app.use("/v1/ai-chatbot", aichatbotCollection(db))
     app.use("/v1/cvs", cvRoutes(db));
+    app.use("/v1/hired-post",postForHired(db))
 
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);

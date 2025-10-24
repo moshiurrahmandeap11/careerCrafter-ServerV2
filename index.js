@@ -53,6 +53,9 @@ const aiJobRoutes = require("./routes/ai-job")
 const resumeRoutes = require("./routes/resume")
 const resumeCheckRoutes = require('./routes/resumeCheck');
 const notificationRoutes = require("./routes/notifications");
+const aichatbotCollection = require("./routes/ai-chatbot")
+const cvRoutes = require('./routes/cv');
+const postForHired = require("./routes/postForHired");
 
 
 
@@ -68,6 +71,7 @@ async function run() {
   try {
     await client.connect();
     console.log("Connected To MongoDB");
+    console.log("Groq API Key:", process.env.GROQ_API_KEY ? "Loaded" : "Not found");
 
     const db = client.db("careerCrafter");
 
@@ -88,6 +92,9 @@ async function run() {
     app.use("/v1/resume-check", resumeCheckRoutes(db));
     app.use("/v1/notifications", notificationRoutes(db));
 
+    app.use("/v1/ai-chatbot", aichatbotCollection(db))
+    app.use("/v1/cvs", cvRoutes(db));
+    app.use("/v1/hired-post",postForHired(db))
 
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);

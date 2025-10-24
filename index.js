@@ -52,6 +52,7 @@ const applicationRoutes = require("./routes/applications")
 const aiJobRoutes = require("./routes/ai-job")
 const resumeRoutes = require("./routes/resume")
 const resumeCheckRoutes = require('./routes/resumeCheck');
+const notificationRoutes = require("./routes/notifications");
 const aichatbotCollection = require("./routes/ai-chatbot")
 const cvRoutes = require('./routes/cv');
 const postForHired = require("./routes/postForHired");
@@ -89,6 +90,8 @@ async function run() {
     app.use("/v1/ai-jobs", aiJobRoutes(db))
     app.use("/v1/resumes", resumeRoutes(db))
     app.use("/v1/resume-check", resumeCheckRoutes(db));
+    app.use("/v1/notifications", notificationRoutes(db));
+
     app.use("/v1/ai-chatbot", aichatbotCollection(db))
     app.use("/v1/cvs", cvRoutes(db));
     app.use("/v1/hired-post",postForHired(db))

@@ -7,7 +7,7 @@ const express = require("express");
 const cors = require("cors");
 const { Server } = require("socket.io");
 const { createServer } = require("node:http");
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 
 const admin = require("firebase-admin");
 // decode base64 key from .env
@@ -27,6 +27,7 @@ const io = new Server(server, {
     origin: "*",
   },
 });
+
 // Middleware
 app.use(cors());
 app.use(express.json());
@@ -36,8 +37,7 @@ const pass = process.env.DB_PASS;
 
 const uri = `mongodb+srv://${user}:${pass}@mdb.26vlivz.mongodb.net/?retryWrites=true&w=majority&appName=MDB`;
 
-
-// import routes
+// Import routes
 const userRoutes = require("./routes/user");
 const messageRoutes = require("./routes/messageRoute")
 const networkRoutes = require("./routes/network");
@@ -57,8 +57,6 @@ const aichatbotCollection = require("./routes/ai-chatbot")
 const cvRoutes = require('./routes/cv');
 const postForHired = require("./routes/postForHired");
 
-
-
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -75,7 +73,7 @@ async function run() {
 
     const db = client.db("careerCrafter");
 
-    // routes
+    // Routes
     app.use("/v1/users", userRoutes(db));
     app.use("/v1/messageUsers", messageRoutes(db));
     app.use("/v1/network", networkRoutes(db))
@@ -91,7 +89,6 @@ async function run() {
     app.use("/v1/resumes", resumeRoutes(db))
     app.use("/v1/resume-check", resumeCheckRoutes(db));
     app.use("/v1/notifications", notificationRoutes(db));
-
     app.use("/v1/ai-chatbot", aichatbotCollection(db))
     app.use("/v1/cvs", cvRoutes(db));
     app.use("/v1/hired-post", postForHired(db))
@@ -102,7 +99,8 @@ async function run() {
 }
 
 run().catch(console.dir);
-// index.js (updated socket events)
+
+// Socket.io real-time communication
 io.on("connection", (socket) => {
   console.log("a user connected", socket.id);
 
@@ -112,7 +110,7 @@ io.on("connection", (socket) => {
     console.log(`${userEmail} joined their private room`);
   });
 
-  // Call-related socket events
+  // Call-related socket events (unchanged)
   socket.on("start-call", (data) => {
     const { to, from, callType, offer } = data;
     socket.to(to).emit("incoming-call", {
@@ -146,14 +144,15 @@ io.on("connection", (socket) => {
     });
   });
 
-  // Existing message events
+  // Message events with notifications
   socket.on("privateMessage", async ({ senderEmail, receiverEmail, text }) => {
     try {
       const db = client.db("careerCrafter");
       const messagesCollection = db.collection("messages");
       const notificationsCollection = db.collection("notifications");
+      const usersCollection = db.collection("users");
 
-      // Save message (your existing code)
+      // Save message
       const chat = {
         fromEmail: senderEmail,
         toEmail: receiverEmail,
@@ -163,33 +162,113 @@ io.on("connection", (socket) => {
 
       await messagesCollection.insertOne(chat);
 
-      // Create notification for receiver
-      const sender = await db.collection("users").findOne(
+      // Get sender info for notification
+      const sender = await usersCollection.findOne(
         { email: senderEmail },
         { projection: { fullName: 1, profileImage: 1 } }
       );
 
+      // Create notification for receiver
       const notification = {
         userEmail: receiverEmail,
         type: 'message',
         message: `New message from ${sender?.fullName || senderEmail}: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`,
         senderName: sender?.fullName || senderEmail,
         senderImage: sender?.profileImage,
+        relatedId: chat._id.toString(),
         isRead: false,
         timestamp: new Date()
       };
 
-      await notificationsCollection.insertOne(notification);
+      const notificationResult = await notificationsCollection.insertOne(notification);
 
       // Emit notification to receiver
-      socket.to(receiverEmail).emit("newNotification", notification);
+      socket.to(receiverEmail).emit("newNotification", {
+        ...notification,
+        _id: notificationResult.insertedId
+      });
 
-      // Emit messages to both users (your existing code)
+      // Emit messages to both users
       io.to(receiverEmail).emit("chatMessage", chat);
       io.to(senderEmail).emit("chatMessage", chat);
 
     } catch (err) {
       console.error("Socket message/notification error:", err);
+    }
+  });
+
+  // Network notification events
+  socket.on("sendConnectionRequest", async (data) => {
+    try {
+      const { senderEmail, receiverEmail } = data;
+      const db = client.db("careerCrafter");
+      const usersCollection = db.collection("users");
+      const notificationsCollection = db.collection("notifications");
+
+      // Get sender info
+      const sender = await usersCollection.findOne(
+        { email: senderEmail },
+        { projection: { fullName: 1, profileImage: 1 } }
+      );
+
+      // Create connection request notification
+      const notification = {
+        userEmail: receiverEmail,
+        type: 'connection_request',
+        message: `${sender?.fullName || senderEmail} sent you a connection request`,
+        senderName: sender?.fullName || senderEmail,
+        senderImage: sender?.profileImage,
+        isRead: false,
+        timestamp: new Date()
+      };
+
+      const result = await notificationsCollection.insertOne(notification);
+
+      // Emit notification to receiver
+      socket.to(receiverEmail).emit("newNotification", {
+        ...notification,
+        _id: result.insertedId
+      });
+
+    } catch (err) {
+      console.error("Socket connection request error:", err);
+    }
+  });
+
+  socket.on("acceptConnectionRequest", async (data) => {
+    try {
+      const { senderEmail, receiverEmail } = data;
+      const db = client.db("careerCrafter");
+      const usersCollection = db.collection("users");
+      const notificationsCollection = db.collection("notifications");
+
+      // Get receiver info (the one who accepted)
+      const receiver = await usersCollection.findOne(
+        { email: receiverEmail },
+        { projection: { fullName: 1, profileImage: 1 } }
+      );
+
+      // Create connection accepted notification for original sender
+      const notification = {
+        userEmail: senderEmail,
+        type: 'connection_accepted',
+        message: `${receiver?.fullName || receiverEmail} accepted your connection request`,
+        senderName: receiver?.fullName || receiverEmail,
+        senderImage: receiver?.profileImage,
+        isRead: false,
+        timestamp: new Date()
+      };
+
+      const result = await notificationsCollection.insertOne(notification);
+
+      // Emit notification to original sender
+      socket.to(senderEmail).emit("newNotification", {
+        ...notification,
+        _id: result.insertedId
+      });
+
+    } catch (err) {
+      console.error("Socket connection accept error:", err);
     }
   });
 
@@ -200,7 +279,7 @@ io.on("connection", (socket) => {
       const notificationsCollection = db.collection("notifications");
 
       await notificationsCollection.updateOne(
-        { _id: new require('mongodb').ObjectId(notificationId) },
+        { _id: new ObjectId(notificationId) },
         { $set: { isRead: true } }
       );
     } catch (err) {
@@ -208,14 +287,10 @@ io.on("connection", (socket) => {
     }
   });
 
-
   socket.on("disconnect", () => {
     console.log("user disconnected:", socket.id);
   });
 });
-
-
-
 
 app.get("/", (req, res) => {
   res.send("Career Crafter running now");

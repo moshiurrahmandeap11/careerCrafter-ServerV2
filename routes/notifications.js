@@ -1,4 +1,5 @@
 const express = require("express");
+const { ObjectId } = require("mongodb");
 const router = express.Router();
 
 module.exports = (db) => {
@@ -70,9 +71,6 @@ module.exports = (db) => {
 
       const result = await notificationsCollection.insertOne(notification);
       
-      // Emit real-time notification via Socket.io if needed
-      // This would require passing the socket instance to the route
-
       res.status(201).json({
         success: true,
         notification: { ...notification, _id: result.insertedId }
@@ -89,7 +87,7 @@ module.exports = (db) => {
       const notificationId = req.params.id;
       
       const result = await notificationsCollection.updateOne(
-        { _id: new require('mongodb').ObjectId(notificationId) },
+        { _id: new ObjectId(notificationId) },
         { $set: { isRead: true } }
       );
 
@@ -98,7 +96,7 @@ module.exports = (db) => {
       }
 
       const updatedNotification = await notificationsCollection.findOne({
-        _id: new require('mongodb').ObjectId(notificationId)
+        _id: new ObjectId(notificationId)
       });
 
       res.json({
@@ -138,7 +136,7 @@ module.exports = (db) => {
       const notificationId = req.params.id;
       
       const result = await notificationsCollection.deleteOne({
-        _id: new require('mongodb').ObjectId(notificationId)
+        _id: new ObjectId(notificationId)
       });
 
       if (result.deletedCount === 0) {

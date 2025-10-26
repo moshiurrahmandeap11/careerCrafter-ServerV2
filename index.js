@@ -94,7 +94,7 @@ async function run() {
 
     app.use("/v1/ai-chatbot", aichatbotCollection(db))
     app.use("/v1/cvs", cvRoutes(db));
-    app.use("/v1/hired-post",postForHired(db))
+    app.use("/v1/hired-post", postForHired(db))
 
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);
@@ -151,7 +151,9 @@ io.on("connection", (socket) => {
     try {
       const db = client.db("careerCrafter");
       const messagesCollection = db.collection("messages");
+      const notificationsCollection = db.collection("notifications");
 
+      // Save message (your existing code)
       const chat = {
         fromEmail: senderEmail,
         toEmail: receiverEmail,
@@ -161,17 +163,58 @@ io.on("connection", (socket) => {
 
       await messagesCollection.insertOne(chat);
 
+      // Create notification for receiver
+      const sender = await db.collection("users").findOne(
+        { email: senderEmail },
+        { projection: { fullName: 1, profileImage: 1 } }
+      );
+
+      const notification = {
+        userEmail: receiverEmail,
+        type: 'message',
+        message: `New message from ${sender?.fullName || senderEmail}: ${text.substring(0, 50)}${text.length > 50 ? '...' : ''}`,
+        senderName: sender?.fullName || senderEmail,
+        senderImage: sender?.profileImage,
+        isRead: false,
+        timestamp: new Date()
+      };
+
+      await notificationsCollection.insertOne(notification);
+
+      // Emit notification to receiver
+      socket.to(receiverEmail).emit("newNotification", notification);
+
+      // Emit messages to both users (your existing code)
       io.to(receiverEmail).emit("chatMessage", chat);
       io.to(senderEmail).emit("chatMessage", chat);
+
     } catch (err) {
-      console.error("Socket message save error:", err);
+      console.error("Socket message/notification error:", err);
     }
   });
+
+  // Listen for notification read events
+  socket.on("markNotificationRead", async (notificationId) => {
+    try {
+      const db = client.db("careerCrafter");
+      const notificationsCollection = db.collection("notifications");
+
+      await notificationsCollection.updateOne(
+        { _id: new require('mongodb').ObjectId(notificationId) },
+        { $set: { isRead: true } }
+      );
+    } catch (err) {
+      console.error("Error marking notification as read:", err);
+    }
+  });
+
 
   socket.on("disconnect", () => {
     console.log("user disconnected:", socket.id);
   });
 });
+
+
 
 
 app.get("/", (req, res) => {

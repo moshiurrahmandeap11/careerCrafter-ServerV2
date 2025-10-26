@@ -1,56 +1,173 @@
 const express = require("express");
 const { ObjectId } = require("mongodb");
+const router = express.Router();
 
-module.exports = function notificationRoutes(db) {
-  const router = express.Router();
-  const notificationCollection = db.collection("notifications");
+module.exports = (db) => {
+  const notificationsCollection = db.collection("notifications");
+  const usersCollection = db.collection("users");
 
-  // GET all notifications
-  router.get("/get-notifications", async (req, res) => {
+  // Get all notifications for a user
+  router.get("/user/:email", async (req, res) => {
     try {
-      const result = await notificationCollection.find().toArray();
-      res.send(result);
+      const userEmail = req.params.email;
+      
+      if (!userEmail) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      const notifications = await notificationsCollection
+        .find({ userEmail })
+        .sort({ timestamp: -1 })
+        .toArray();
+
+      const unreadCount = await notificationsCollection.countDocuments({
+        userEmail,
+        isRead: false
+      });
+
+      res.json({
+        notifications,
+        unreadCount
+      });
     } catch (error) {
-      console.error(error);
-      res.status(500).send({ error: "Failed to fetch notifications" });
+      console.error('Error fetching notifications:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 
-  // POST a new notification
-  router.post("/send-notifications", async (req, res) => {
+  // Create a new notification
+  router.post("/", async (req, res) => {
     try {
-      const {
-        userId,
-        type,
-        senderName,
-        senderEmail,
-        senderProfile,
-        message,
-        read,
-      } = req.body;
+      const { userEmail, type, message, senderEmail, relatedId } = req.body;
+      
+      if (!userEmail || !type || !message) {
+        return res.status(400).json({ error: "userEmail, type, and message are required" });
+      }
 
-      if (!userId || !message) {
-        return res
-          .status(400)
-          .send({ error: "userId and message are required" });
+      // Get sender info if provided
+      let senderInfo = {};
+      if (senderEmail) {
+        const sender = await usersCollection.findOne(
+          { email: senderEmail },
+          { projection: { fullName: 1, profileImage: 1 } }
+        );
+        if (sender) {
+          senderInfo = {
+            senderName: sender.fullName,
+            senderImage: sender.profileImage
+          };
+        }
       }
 
       const notification = {
-        userId,
+        userEmail,
         type,
-        senderEmail,
-        senderName,
-        senderProfile,
         message,
-        read: read || false,
-        createdAt: new Date(),
+        ...senderInfo,
+        relatedId,
+        isRead: false,
+        timestamp: new Date()
       };
 
-      const result = await notificationCollection.insertOne(notification);
-      res.send(result);
+      const result = await notificationsCollection.insertOne(notification);
+      
+      res.status(201).json({
+        success: true,
+        notification: { ...notification, _id: result.insertedId }
+      });
     } catch (error) {
-      console.error(error);
-      res.status(500).send({ error: "Failed to send notification" });
+      console.error('Error creating notification:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Mark notification as read
+  router.patch("/:id/read", async (req, res) => {
+    try {
+      const notificationId = req.params.id;
+      
+      const result = await notificationsCollection.updateOne(
+        { _id: new ObjectId(notificationId) },
+        { $set: { isRead: true } }
+      );
+
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ error: "Notification not found" });
+      }
+
+      const updatedNotification = await notificationsCollection.findOne({
+        _id: new ObjectId(notificationId)
+      });
+
+      res.json({
+        success: true,
+        notification: updatedNotification
+      });
+    } catch (error) {
+      console.error('Error marking notification as read:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Mark all notifications as read for a user
+  router.patch("/user/:email/read-all", async (req, res) => {
+    try {
+      const userEmail = req.params.email;
+      
+      const result = await notificationsCollection.updateMany(
+        { userEmail, isRead: false },
+        { $set: { isRead: true } }
+      );
+
+      res.json({
+        success: true,
+        message: 'All notifications marked as read',
+        modifiedCount: result.modifiedCount
+      });
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Delete a notification
+  router.delete("/:id", async (req, res) => {
+    try {
+      const notificationId = req.params.id;
+      
+      const result = await notificationsCollection.deleteOne({
+        _id: new ObjectId(notificationId)
+      });
+
+      if (result.deletedCount === 0) {
+        return res.status(404).json({ error: "Notification not found" });
+      }
+
+      res.json({
+        success: true,
+        message: 'Notification deleted successfully'
+      });
+    } catch (error) {
+      console.error('Error deleting notification:', error);
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  });
+
+  // Clear all notifications for a user
+  router.delete("/user/:email", async (req, res) => {
+    try {
+      const userEmail = req.params.email;
+      
+      const result = await notificationsCollection.deleteMany({ userEmail });
+
+      res.json({
+        success: true,
+        message: 'All notifications cleared',
+        deletedCount: result.deletedCount
+      });
+    } catch (error) {
+      console.error('Error clearing notifications:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   });
 

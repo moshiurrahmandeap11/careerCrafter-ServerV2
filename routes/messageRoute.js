@@ -1,10 +1,11 @@
 const express = require("express");
+const verifyFirebaseToken = require("../middleWare/verifyFirebaseToken");
 const router = express.Router();
 
 module.exports = (db) => {
   const usersCollection = db.collection("users");
   const messagesCollection = db.collection("messages");
-
+  const connectionsCollection = db.collection("connections");
   const isHateSpeech = (message) => {
     const badWords = [
       // English
@@ -86,24 +87,42 @@ module.exports = (db) => {
     return badWords.some((word) => lowerMessage.includes(word.toLowerCase()));
   };
 
-  router.get("/usersEmail", async (req, res) => {
+  // get only connected user for a user
+  router.get("/connected-users",verifyFirebaseToken, async (req, res) => {
     try {
-      const email = req.query.email;
+      const { email } = req.query;
+
       if (!email) {
-        return res.status(400).json({ error: "email is required" });
+        return res.status(400).json({ error: "Email is required" });
       }
-      const usersEmail = await usersCollection
-        .find({ email: { $ne: email } })
+
+      // Find all connections where this user is part of (user1 or user2)
+      const connections = await connectionsCollection
+        .find({
+          $or: [{ user1: email }, { user2: email }],
+        })
         .toArray();
-      res.status(200).json(usersEmail);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch users" });
+
+      // Get all other users' emails
+      const connectedEmails = connections.map((conn) => {
+        return conn.user1 === email ? conn.user2 : conn.user1;
+      });
+
+      // Fetch full user details from usersCollection
+      const connectedUsers = await usersCollection
+        .find({ email: { $in: connectedEmails } })
+        .toArray();
+
+      res.json({ connectedUsers });
+    } catch (err) {
+      console.error("connected-users error:", err);
+      res.status(500).json({ message: err.message });
     }
   });
 
   // --- CHAT ROUTES ---
 
-  router.post("/messages", async (req, res) => {
+  router.post("/messages",verifyFirebaseToken, async (req, res) => {
     try {
       const { fromEmail, toEmail, message } = req.body;
 
@@ -134,7 +153,7 @@ module.exports = (db) => {
     }
   });
 
-  router.get("/messages", async (req, res) => {
+  router.get("/messages",verifyFirebaseToken, async (req, res) => {
     try {
       const { userEmail, friendEmail } = req.query;
 
@@ -161,7 +180,7 @@ module.exports = (db) => {
     }
   });
 
-  router.get("/allMessages", async (req, res) => {
+  router.get("/allMessages",verifyFirebaseToken, async (req, res) => {
     try {
       let allMessages = await messagesCollection
         .find({})
@@ -193,7 +212,7 @@ module.exports = (db) => {
   });
 
   // NEW: Get unread messages count for a user
-  router.get("/unread-count/:email", async (req, res) => {
+  router.get("/unread-count/:email",verifyFirebaseToken, async (req, res) => {
     try {
       const userEmail = req.params.email;
 
@@ -245,7 +264,7 @@ module.exports = (db) => {
   });
 
   // NEW: Mark messages as read
-  router.post("/mark-read/:email", async (req, res) => {
+  router.post("/mark-read/:email",verifyFirebaseToken, async (req, res) => {
     try {
       const userEmail = req.params.email;
 
@@ -275,7 +294,7 @@ module.exports = (db) => {
   });
 
   // NEW: Mark specific conversation as read
-  router.post("/mark-conversation-read", async (req, res) => {
+  router.post("/mark-conversation-read",verifyFirebaseToken, async (req, res) => {
     try {
       const { userEmail, friendEmail } = req.body;
 
@@ -308,7 +327,7 @@ module.exports = (db) => {
   });
 
   // get last message
-  router.get("/last-message", async (req, res) => {
+  router.get("/last-message",verifyFirebaseToken, async (req, res) => {
     try {
       const { userEmail, friendEmail } = req.query;
 

@@ -540,7 +540,7 @@ module.exports = (db) => {
   });
 
   // get profile information
-  router.get("/get-profile", async (req, res) => {
+  router.get("/get-profile", verifyFirebaseToken, async (req, res) => {
     try {
       const { email } = req.query;
       if (!email) {

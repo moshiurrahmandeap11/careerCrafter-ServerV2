@@ -8,7 +8,6 @@ module.exports = (db) => {
     const aichatbotCollection = db.collection("aichatbot");
     const jobsCollection = db.collection("jobs");
     const usersCollection = db.collection("users");
-    const paymentsCollection = db.collection("payments");
 
     // Groq client
     let groq;
@@ -21,9 +20,6 @@ module.exports = (db) => {
         console.error('❌ Groq init failed:', error);
     }
 
-    // Conversation memory
-    let conversationMemory = new Map();
-
     // Premium configuration
     const PREMIUM_CONFIG = {
         FREE_MESSAGES: 2,
@@ -31,7 +27,7 @@ module.exports = (db) => {
         MIN_CREDITS_REQUIRED: 10
     };
 
-    // Check user premium status and credits
+    // Check user premium status
     const checkUserAccess = async (userEmail) => {
         try {
             const user = await usersCollection.findOne({ email: userEmail });
@@ -39,27 +35,29 @@ module.exports = (db) => {
                 return { allowed: false, reason: 'User not found' };
             }
 
-            // Get user's message count for this session
-            const context = getConversationContext(userEmail);
-            const messageCount = context.messageCount || 0;
+            // Count ONLY user messages from DB
+            const chat = await aichatbotCollection.findOne({ userEmail });
+            const userMessageCount = chat ? chat.messages.filter(m => m.role === 'user').length : 0;
+
+            console.log(`📊 User ${userEmail} has sent ${userMessageCount} messages`);
 
             // Free tier: first 2 messages are free
-            if (messageCount <= PREMIUM_CONFIG.FREE_MESSAGES) {
+            if (userMessageCount < PREMIUM_CONFIG.FREE_MESSAGES) {
                 return { 
                     allowed: true, 
                     tier: 'free',
-                    remainingFree: PREMIUM_CONFIG.FREE_MESSAGES - messageCount,
-                    messageCount 
+                    remainingFree: PREMIUM_CONFIG.FREE_MESSAGES - userMessageCount,
+                    messageCount: userMessageCount 
                 };
             }
 
             // Premium users have unlimited access
-            if (user.isPremium && user.aiCredits > 0) {
+            if (user.isPremium) {
                 return { 
                     allowed: true, 
                     tier: 'premium',
-                    credits: user.aiCredits,
-                    messageCount 
+                    credits: user.aiCredits || 0,
+                    messageCount: userMessageCount 
                 };
             }
 
@@ -69,7 +67,7 @@ module.exports = (db) => {
                     allowed: true, 
                     tier: 'credits',
                     credits: user.aiCredits,
-                    messageCount 
+                    messageCount: userMessageCount 
                 };
             }
 
@@ -77,7 +75,7 @@ module.exports = (db) => {
                 allowed: false, 
                 tier: 'blocked',
                 reason: 'Insufficient credits',
-                messageCount,
+                messageCount: userMessageCount,
                 required: PREMIUM_CONFIG.MIN_CREDITS_REQUIRED
             };
 
@@ -87,12 +85,12 @@ module.exports = (db) => {
         }
     };
 
-    // Deduct credits for AI response
+    // Deduct credits
     const deductCredits = async (userEmail, messageLength) => {
         try {
             const creditsUsed = Math.ceil(messageLength * PREMIUM_CONFIG.CREDITS_PER_CHARACTER);
             
-            const result = await usersCollection.updateOne(
+            await usersCollection.updateOne(
                 { email: userEmail },
                 { 
                     $inc: { aiCredits: -creditsUsed },
@@ -108,428 +106,242 @@ module.exports = (db) => {
         }
     };
 
-    // FIXED Conversation Memory System
-    const getConversationContext = (userEmail) => {
-        if (!conversationMemory.has(userEmail)) {
-            conversationMemory.set(userEmail, {
-                userName: userEmail.split('@')[0],
-                phase: 'greeting',
-                mentionedSkills: [],
-                jobPreferences: {},
-                lastIntent: '',
-                messageCount: 0,
-                lastSearchTime: null,
-                searchResults: null,
-                conversationHistory: [],
-                freeMessagesUsed: 0,
-                sessionStart: new Date(),
-                lastActivity: new Date()
-            });
+    // IMPROVED: Detect user intent from message
+    const detectIntent = (message) => {
+        const lower = message.toLowerCase();
+        
+        // Job search patterns
+        if (lower.match(/find|search|looking for|need|want|show me|get me|tell me about.*job/i) ||
+            lower.match(/react.*job|developer.*job|frontend.*job|backend.*job/i) ||
+            lower.match(/job.*react|job.*developer|job.*frontend/i) ||
+            lower.includes('career opportunities') ||
+            lower.includes('work opportunities')) {
+            return 'job_search';
         }
-        return conversationMemory.get(userEmail);
+        
+        // Hiring patterns
+        if (lower.includes('hire') || lower.includes('recruit') || lower.includes('candidate')) {
+            return 'hiring';
+        }
+        
+        // Premium/subscription
+        if (lower.includes('premium') || lower.includes('upgrade') || 
+            lower.includes('subscription') || lower.includes('plan')) {
+            return 'premium';
+        }
+        
+        // Greeting
+        if (lower.match(/^(hi|hello|hey|sup|what's up|howdy)$/i)) {
+            return 'greeting';
+        }
+        
+        return 'general';
     };
 
-    const updateConversationContext = (userEmail, userMessage, aiResponse, searchData = null) => {
-        const context = getConversationContext(userEmail);
-        const lowerMessage = userMessage.toLowerCase();
-        
-        // Track message count - ONLY for user messages
-        if (userMessage.trim().length > 0) {
-            context.messageCount += 1;
-            context.lastActivity = new Date();
-        }
-        
-        // Detect intent and phase - IMPROVED LOGIC
-        if (context.messageCount === 1 || 
-            lowerMessage.includes('hi') || 
-            lowerMessage.includes('hello') || 
-            lowerMessage.includes('hey') ||
-            lowerMessage.includes('start')) {
-            
-            context.phase = 'greeting';
-            context.lastIntent = 'greeting';
-            
-        } else if (lowerMessage.includes('job') || 
-                   lowerMessage.includes('career') || 
-                   lowerMessage.includes('work') || 
-                   lowerMessage.includes('developer') || 
-                   lowerMessage.includes('seek') || 
-                   lowerMessage.includes('looking for') ||
-                   lowerMessage.includes('find job') ||
-                   lowerMessage.includes('position') ||
-                   lowerMessage.includes('role')) {
-            
-            context.phase = 'job_search';
-            context.lastIntent = 'job_search';
-            
-        } else if (lowerMessage.includes('hire') || 
-                   lowerMessage.includes('candidate') ||
-                   lowerMessage.includes('recruit') ||
-                   lowerMessage.includes('employee')) {
-            
-            context.phase = 'hiring';
-            context.lastIntent = 'hiring';
-            
-        } else if (lowerMessage.includes('premium') || 
-                   lowerMessage.includes('credit') || 
-                   lowerMessage.includes('upgrade') || 
-                   lowerMessage.includes('plan') ||
-                   lowerMessage.includes('subscribe')) {
-            
-            context.phase = 'premium';
-            context.lastIntent = 'premium';
-            
-        } else {
-            // Continue with last intent for follow-up messages
-            context.phase = context.lastIntent || 'general';
-        }
-        
-        // Extract and track skills
-        const skillKeywords = ['react', 'javascript', 'node', 'python', 'java', 'developer', 'frontend', 'backend', 'fullstack'];
-        const foundSkills = skillKeywords.filter(skill => lowerMessage.includes(skill));
-        if (foundSkills.length > 0) {
-            context.mentionedSkills = [...new Set([...context.mentionedSkills, ...foundSkills])];
-        }
-        
-        // Store search results
-        if (searchData) {
-            context.searchResults = searchData;
-            context.lastSearchTime = new Date();
-        }
-        
-        // Track conversation history - ONLY meaningful messages
-        if (userMessage.trim().length > 1 && !['ok', 'okay', 'thanks', 'thank you', 'hello', 'hi', 'hey'].includes(userMessage.trim().toLowerCase())) {
-            context.conversationHistory.push({
-                user: userMessage,
-                assistant: aiResponse,
-                timestamp: new Date(),
-                intent: context.lastIntent
-            });
-        }
-        
-        // Keep only last 8 messages
-        if (context.conversationHistory.length > 8) {
-            context.conversationHistory = context.conversationHistory.slice(-8);
-        }
-        
-        console.log('🧠 Updated Context:', {
-            phase: context.phase,
-            intent: context.lastIntent,
-            skills: context.mentionedSkills,
-            messageCount: context.messageCount,
-            hasSearchResults: !!context.searchResults,
-            historyLength: context.conversationHistory.length
-        });
-        
-        conversationMemory.set(userEmail, context);
-        return context;
-    };
-
-    // Job search function with enhanced results
-    const findJobsBySkills = async (skills, context) => {
+    // IMPROVED: Search jobs with better matching
+    const searchJobs = async (message) => {
         try {
-            console.log('🔍 Searching jobs in database...');
+            console.log('🔍 Searching jobs for query:', message);
             
-            let skillsArray = Array.isArray(skills) ? skills : [skills];
-            skillsArray = skillsArray.map(s => s.trim().toLowerCase()).filter(s => s.length > 2);
-
-            // Smart skill mapping for better search
-            if (skillsArray.includes('react')) {
-                skillsArray.push('react.js', 'reactjs', 'frontend', 'javascript');
+            const lower = message.toLowerCase();
+            let skills = [];
+            
+            // Extract skills from message
+            const skillPatterns = {
+                'react': ['react', 'reactjs', 'react.js'],
+                'javascript': ['javascript', 'js', 'es6'],
+                'node': ['node', 'nodejs', 'node.js'],
+                'python': ['python'],
+                'java': ['java'],
+                'frontend': ['frontend', 'front-end', 'front end'],
+                'backend': ['backend', 'back-end', 'back end'],
+                'fullstack': ['fullstack', 'full-stack', 'full stack']
+            };
+            
+            for (const [skill, patterns] of Object.entries(skillPatterns)) {
+                if (patterns.some(pattern => lower.includes(pattern))) {
+                    skills.push(skill);
+                }
             }
-            if (skillsArray.includes('developer')) {
-                skillsArray.push('engineer', 'programmer');
+            
+            // Default to React if no specific skills mentioned
+            if (skills.length === 0) {
+                skills = ['react', 'javascript', 'developer'];
             }
-
-            skillsArray = [...new Set(skillsArray)];
-            console.log('🔍 Final search terms:', skillsArray);
-
+            
+            console.log('🎯 Searching with skills:', skills);
+            
             const jobs = await jobsCollection.find({
                 status: 'active',
                 $or: [
-                    { 
-                        $or: [
-                            { requiredSkills: { $in: skillsArray } },
-                            { preferredSkills: { $in: skillsArray } },
-                            { tags: { $in: skillsArray } }
-                        ]
-                    },
-                    { title: { $regex: skillsArray.join('|'), $options: 'i' } },
-                    { description: { $regex: skillsArray.join('|'), $options: 'i' } },
-                    { company: { $regex: skillsArray.join('|'), $options: 'i' } }
+                    { requiredSkills: { $in: skills } },
+                    { preferredSkills: { $in: skills } },
+                    { title: { $regex: skills.join('|'), $options: 'i' } },
+                    { description: { $regex: skills.join('|'), $options: 'i' } }
                 ]
             })
             .sort({ createdAt: -1 })
             .limit(10)
             .toArray();
 
-            console.log(`✅ Database returned ${jobs.length} jobs`);
+            console.log(`✅ Found ${jobs.length} jobs`);
             
-            // Generate job links
-            const jobsWithLinks = jobs.map(job => ({
-                ...job,
-                jobLink: `/jobs/${job._id}`,
-                applyLink: `/jobs/${job._id}/apply`,
-                companyLink: `/companies/${job.company.toLowerCase().replace(/\s+/g, '-')}`
+            return jobs.map(job => ({
+                id: job._id,
+                title: job.title,
+                company: job.company,
+                salary: job.salaryMin ? `$${job.salaryMin}-${job.salaryMax}` : 'Competitive',
+                location: job.location || 'Remote',
+                type: job.jobType || 'Full-time',
+                skills: job.requiredSkills?.slice(0, 3).join(', ') || 'React, JavaScript',
+                link: `/job/${job._id}`,
+                applyLink: `/job/${job._id}/apply`
             }));
-
-            return { 
-                jobs: jobsWithLinks, 
-                formattedJobs: jobsWithLinks.map(job => ({
-                    title: job.title,
-                    company: job.company,
-                    salary: job.salaryMin ? `$${job.salaryMin}-$${job.salaryMax}` : 'Competitive salary',
-                    location: job.location || 'Remote',
-                    skills: job.requiredSkills?.join(', ') || 'React, JavaScript',
-                    type: job.jobType || 'Full-time',
-                    jobLink: job.jobLink,
-                    applyLink: job.applyLink
-                }))
-            };
         } catch (error) {
             console.error('❌ Job search error:', error);
-            return { jobs: [], formattedJobs: [] };
+            return [];
         }
     };
 
-    // IMPROVED Guaranteed Response Generator with Conversation Flow
-    const generateGuaranteedResponse = (jobData, userMessage, context, userAccess) => {
-        const lowerMessage = userMessage.toLowerCase();
-        
-        console.log('🛡️ Using guaranteed response with:', {
-            jobs: jobData.jobs.length,
-            userTier: userAccess.tier,
-            messageCount: context.messageCount,
-            phase: context.phase,
-            intent: context.lastIntent
-        });
-        
-        // Premium upgrade prompt for free users after 2 messages
-        if (!userAccess.allowed && userAccess.tier === 'blocked') {
-            return `🚀 **Upgrade to Premium Required**\n\nYou've used your ${PREMIUM_CONFIG.FREE_MESSAGES} free messages! To continue chatting with me:\n\n💎 **Premium Benefits:**\n• Unlimited AI conversations\n• Priority job matching\n• Advanced career insights\n• Direct employer connections\n\n🔗 **Upgrade Now:** \`/premium\`\n\nOr purchase credits to continue: \`/buy-credits\``;
-        }
-        
-        // Handle conversation flow based on context
-        switch(context.phase) {
-            case 'greeting':
-                if (context.messageCount === 1) {
-                    return `Hey there! 👋 I'm your CareerCrafter AI assistant. I can help you with:\n\n• Finding React developer jobs\n• Connecting with employers  \n• Career advice and tips\n• Profile optimization\n\nWhat would you like to start with today?\n\n💡 **Free Messages:** ${userAccess.remainingFree} of ${PREMIUM_CONFIG.FREE_MESSAGES} remaining`;
-                } else {
-                    return `I'm still here! 😊 You mentioned you're looking for opportunities. Would you like me to:\n\n1. Search for React developer jobs\n2. Help with your career strategy\n3. Connect you with employers\n\nWhat sounds most helpful right now?\n\n💡 **Free Messages:** ${userAccess.remainingFree} of ${PREMIUM_CONFIG.FREE_MESSAGES} remaining`;
-                }
-                
-            case 'job_search':
-                // If jobs found - PROVIDE ACTUAL JOB INFO WITH LINKS
-                if (jobData.jobs.length > 0) {
-                    const jobs = jobData.formattedJobs.slice(0, 3);
-                    const jobList = jobs.map(job => 
-                        `**[${job.title}](${job.jobLink})** at ${job.company} (${job.salary}) - ${job.location}`
-                    ).join('\n• ');
-                    
-                    let response = `Excellent! 🎯 I found ${jobData.jobs.length} React developer position${jobData.jobs.length > 1 ? 's' : ''} for you:\n\n• ${jobList}\n\n**Quick Actions:**\n1. **[View Details](${jobs[0].jobLink})** - See full job description\n2. **[Apply Now](${jobs[0].applyLink})** - Start application\n3. **[Browse More Jobs](/jobs)** - Explore all opportunities\n\nWould you like me to help with the application process or search for different roles?`;
-                    
-                    // Add free message counter for free users
-                    if (userAccess.tier === 'free') {
-                        response += `\n\n💡 **Free Messages:** ${userAccess.remainingFree} of ${PREMIUM_CONFIG.FREE_MESSAGES} remaining`;
-                    }
-                    
-                    return response;
-                } else {
-                    let response = `I searched our database for React developer positions! 🔍\n\n**Current Status:** While we have many opportunities, specific React roles are limited right now.\n\n**Recommended Actions:**\n1. **[Browse Job Board](/jobs)** - All current openings\n2. **[Set Up Alerts](/profile/alerts)** - Get notified for new React jobs\n3. **[Expand Search](/jobs?search=javascript)** - Consider JavaScript/Frontend roles\n\nWould you like me to help you set up job alerts or explore other career options?`;
-                    
-                    if (userAccess.tier === 'free') {
-                        response += `\n\n💡 **Free Messages:** ${userAccess.remainingFree} of ${PREMIUM_CONFIG.FREE_MESSAGES} remaining`;
-                    }
-                    
-                    return response;
-                }
-                
-            case 'hiring':
-                return `I'd be happy to help you find talented candidates! 👥\n\nPlease tell me:\n1. What specific skills are you looking for?\n2. What type of position is this?\n3. Any experience level preferences?\n\nI'll search our database for the perfect matches!\n\n💡 **Free Messages:** ${userAccess.remainingFree} of ${PREMIUM_CONFIG.FREE_MESSAGES} remaining`;
-                
-            case 'premium':
-                return `💎 **CareerCrafter Premium**\n\n**Free Tier:**\n• ${PREMIUM_CONFIG.FREE_MESSAGES} AI messages per session\n• Basic job matching\n• Standard career advice\n\n**Premium Benefits:**\n• **Unlimited** AI conversations\n• **Priority** job matching\n• **Advanced** career insights\n• **Direct** employer connections\n• **Personalized** career coaching\n\n🔗 **Upgrade Now:** \`/premium\`\n💰 **Buy Credits:** \`/buy-credits\`\n\nYour current status: ${userAccess.tier === 'premium' ? '🎉 Premium Member' : 'Free Tier'}`;
-                
-            default:
-                // Follow-up conversation based on last intent
-                if (context.lastIntent === 'job_search') {
-                    return `Continuing our job search conversation! 🚀\n\nWould you like me to:\n1. Search for more specific roles?\n2. Help with application tips?\n3. Review your profile for employers?\n\nI'm here to help you land that perfect React role!\n\n💡 **Free Messages:** ${userAccess.remainingFree} of ${PREMIUM_CONFIG.FREE_MESSAGES} remaining`;
-                }
-                
-                // Default engaging response
-                let response = `I'm here to help! 🎯\n\nBased on our conversation, I can assist with:\n\n`;
-                
-                if (context.mentionedSkills.length > 0) {
-                    response += `• Finding ${context.mentionedSkills.join('/')} developer jobs\n`;
-                }
-                response += `• Career advice and strategy\n• Profile optimization tips\n• Interview preparation\n\nWhat would you like to focus on?\n\n💡 **Free Messages:** ${userAccess.remainingFree} of ${PREMIUM_CONFIG.FREE_MESSAGES} remaining`;
-                
-                return response;
-        }
-    };
-
-    // IMPROVED AI Response Generator with Better Context
-    const generateAIResponse = async (userMessage, userEmail) => {
+    // IMPROVED: Generate smart AI response
+    const generateAIResponse = async (userMessage, userEmail, userAccess, chatHistory) => {
         try {
-            // Check user access first
-            const userAccess = await checkUserAccess(userEmail);
-            
+            // Block if no access
             if (!userAccess.allowed) {
-                return generateGuaranteedResponse({ jobs: [] }, userMessage, getConversationContext(userEmail), userAccess);
+                return {
+                    content: `🚀 **You've used your ${PREMIUM_CONFIG.FREE_MESSAGES} free messages!**
+
+To keep chatting with me, you'll need to upgrade:
+
+💎 **Premium Benefits:**
+✅ Unlimited AI conversations
+✅ Priority job matching  
+✅ Advanced career insights
+✅ Direct employer connections
+
+**Get Started:**
+🔗 [Upgrade to Premium](/premium)
+💰 [Buy AI Credits](/buy-credits)
+
+I'll be here when you're ready! 😊`,
+                    isBlocked: true
+                };
             }
 
-            const context = getConversationContext(userEmail);
-            const lowerMessage = userMessage.toLowerCase();
-            
-            console.log('💬 Processing:', userMessage);
-            console.log('🎯 Context Analysis:', {
-                phase: context.phase,
-                intent: context.lastIntent, 
-                skills: context.mentionedSkills,
-                messageCount: context.messageCount,
-                userTier: userAccess.tier,
-                historyLength: context.conversationHistory.length
-            });
+            const intent = detectIntent(userMessage);
+            console.log('🎯 Detected intent:', intent);
 
-            // Skip AI for very short follow-up messages to save credits
-            const shortMessages = ['ok', 'okay', 'thanks', 'thank you', 'hello', 'hi', 'hey'];
-            if (shortMessages.includes(lowerMessage.trim()) && context.messageCount > 1) {
-                console.log('⏩ Using guaranteed response for short follow-up');
-                const jobData = { jobs: [], formattedJobs: [] };
-                return generateGuaranteedResponse(jobData, userMessage, context, userAccess);
-            }
-
-            // IMMEDIATE ACTION: Search for jobs when relevant
-            let jobData = { jobs: [], formattedJobs: [] };
-            
-            if (context.phase === 'job_search' || 
-                lowerMessage.includes('job') || 
-                lowerMessage.includes('career') ||
-                lowerMessage.includes('work') ||
-                lowerMessage.includes('react') ||
-                lowerMessage.includes('developer') ||
-                context.lastIntent === 'job_search' ||
-                lowerMessage.includes('seek') ||
-                lowerMessage.includes('looking for') ||
-                lowerMessage.includes('find job') ||
-                lowerMessage.includes('position') ||
-                lowerMessage.includes('role')
-            ) {
+            // Handle job search with ACTUAL search
+            if (intent === 'job_search') {
+                const jobs = await searchJobs(userMessage);
                 
-                const searchSkills = context.mentionedSkills.length > 0 ? context.mentionedSkills : ['react', 'developer', 'javascript'];
-                console.log('🚀 Immediate job search triggered with skills:', searchSkills);
-                
-                jobData = await findJobsBySkills(searchSkills, context);
-                console.log('📊 Job search results:', jobData.jobs.length);
+                if (jobs.length > 0) {
+                    const topJobs = jobs.slice(0, 3);
+                    const jobList = topJobs.map(job => 
+                        `**${job.title}** at ${job.company}
+  💰 ${job.salary} | 📍 ${job.location}
+  🔧 Skills: ${job.skills}
+  🔗 [View Job](${job.link}) | [Apply](${job.applyLink})`
+                    ).join('\n\n');
+                    
+                    let response = `Great! 🎯 I found **${jobs.length} matching position${jobs.length > 1 ? 's' : ''}** for you:\n\n${jobList}`;
+                    
+                    if (jobs.length > 3) {
+                        response += `\n\n...and ${jobs.length - 3} more! [View All Jobs](/jobs)`;
+                    }
+                    
+                    response += `\n\nWant help with your application or need to refine the search?`;
+                    
+                    // Add free message counter
+                    if (userAccess.tier === 'free') {
+                        response += `\n\n💡 Free messages: ${userAccess.remainingFree} remaining`;
+                    }
+                    
+                    return { content: response, jobs: jobs };
+                } else {
+                    let response = `I searched our database for React developer positions! 🔍
+
+Right now we have limited openings matching your exact criteria, but here's what you can do:
+
+🔔 **[Set Job Alerts](/profile/alerts)** - Get instant notifications
+🌐 **[Browse All Jobs](/jobs)** - Explore current opportunities  
+💼 **[Expand Search](/jobs?search=javascript)** - Similar roles
+
+Would you like me to help you set up job alerts?`;
+                    
+                    if (userAccess.tier === 'free') {
+                        response += `\n\n💡 Free messages: ${userAccess.remainingFree} remaining`;
+                    }
+                    
+                    return { content: response };
+                }
             }
 
-            // Build intelligent context for AI
-            const recentHistory = context.conversationHistory.slice(-3).map(msg => 
-                `User: ${msg.user}\nAssistant: ${msg.assistant}`
-            ).join('\n\n');
+            // For other intents, use AI with proper context
+            const recentMessages = chatHistory.slice(-6).map(m => 
+                `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content}`
+            ).join('\n');
 
-            // Enhanced System Prompt with Conversation Flow
-            const systemPrompt = `
-# CareerCrafter AI - Real Career Assistant
+            const systemPrompt = `You are a friendly CareerCrafter AI assistant helping with job search and career advice.
 
-## CONVERSATION FLOW:
-- Current Phase: ${context.phase}
-- Previous Intent: ${context.lastIntent}
-- Message Count: ${context.messageCount}
-- User Tier: ${userAccess.tier}
-- User Skills: ${context.mentionedSkills.join(', ') || 'React developer'}
+IMPORTANT RULES:
+1. Keep responses SHORT (2-3 sentences max) and natural like a real human
+2. Be enthusiastic but professional
+3. If asked about jobs, acknowledge that you're searching (even though search already happened)
+4. Don't repeat yourself - vary your responses
+5. Ask follow-up questions to keep conversation going
 
-## SEARCH RESULTS:
-${jobData.jobs.length > 0 ? 
-`Found ${jobData.jobs.length} jobs:
-${jobData.formattedJobs.map(j => `• ${j.title} at ${j.company} (${j.salary}) - [View](${j.jobLink})`).join('\n')}`
-: 'No specific jobs found in current search'}
+USER STATUS: ${userAccess.tier} tier | ${userAccess.remainingFree || 'unlimited'} free messages left
 
-## RECENT CONVERSATION:
-${recentHistory || 'Just starting conversation'}
+CONVERSATION HISTORY:
+${recentMessages || 'New conversation'}
 
-## CURRENT USER MESSAGE:
-"${userMessage}"
+USER MESSAGE: "${userMessage}"
 
-## YOUR ROLE:
-Continue the natural conversation flow. You've already searched the database when relevant.
+Respond naturally and helpfully:`;
 
-## RESPONSE GUIDELINES:
-
-### CONVERSATION CONTINUITY:
-- Acknowledge previous context naturally
-- Continue the discussion flow
-- Ask relevant follow-up questions
-- Maintain helpful, enthusiastic tone
-
-### FOR JOB SEARCH:
-${jobData.jobs.length > 0 ? 
-`- Mention the specific jobs found
-- Provide clickable links
-- Offer application help
-- Suggest next steps` 
-: `- Suggest alternative actions
-- Provide helpful resources
-- Offer to refine search`}
-
-### FOR FREE USERS:
-- Mention remaining free messages naturally
-- Don't be pushy about premium
-- Focus on providing value
-
-## CRITICAL: Never restart conversation or ignore context!
-
-Respond naturally and continue the discussion:`;
-
-            console.log('🤖 Calling AI with conversation context...');
             const completion = await groq.chat.completions.create({
                 messages: [
                     { role: "system", content: systemPrompt },
                     { role: "user", content: userMessage }
                 ],
                 model: "llama3-8b-8192",
-                temperature: 0.7,
-                max_tokens: 600
+                temperature: 0.8,
+                max_tokens: 250
             });
 
-            let aiResponse = completion.choices[0]?.message?.content;
+            let aiResponse = completion.choices[0]?.message?.content || "I'm here to help! What would you like to know?";
             
-            console.log('🤖 AI Response:', aiResponse);
+            // Add free message counter naturally
+            if (userAccess.tier === 'free' && userAccess.remainingFree !== undefined) {
+                aiResponse += `\n\n💡 Free messages: ${userAccess.remainingFree} remaining`;
+            }
             
-            // Deduct credits if not free tier
-            if (userAccess.tier !== 'free' && userAccess.tier !== 'blocked') {
+            // Deduct credits if not free
+            if (userAccess.tier !== 'free') {
                 await deductCredits(userEmail, aiResponse.length);
             }
-            
-            // Update context with search data
-            updateConversationContext(userEmail, userMessage, aiResponse, jobData);
 
-            return aiResponse;
+            return { content: aiResponse };
 
         } catch (error) {
-            console.error('❌ AI Error:', error);
+            console.error('❌ AI generation error:', error);
             
-            // FALLBACK: Generate response with actual search data
-            const context = getConversationContext(userEmail);
-            const userAccess = await checkUserAccess(userEmail);
-            const lowerMessage = userMessage.toLowerCase();
+            // Simple fallback
+            let fallback = "I'm here to help! You can ask me to find jobs, give career advice, or help with your profile.";
             
-            // Search for jobs in fallback too
-            let jobData = { jobs: [], formattedJobs: [] };
-            if (lowerMessage.includes('job') || lowerMessage.includes('react') || context.lastIntent === 'job_search') {
-                const searchSkills = context.mentionedSkills.length > 0 ? context.mentionedSkills : ['react', 'developer'];
-                jobData = await findJobsBySkills(searchSkills, context);
+            if (userAccess.tier === 'free') {
+                fallback += `\n\n💡 Free messages: ${userAccess.remainingFree} remaining`;
             }
             
-            return generateGuaranteedResponse(jobData, userMessage, context, userAccess);
+            return { content: fallback };
         }
     };
 
-    // Get or create chat for user
+    // Get or create chat
     router.get('/chat/:userEmail', async (req, res) => {
         try {
             const { userEmail } = req.params;
-
             let chat = await aichatbotCollection.findOne({ userEmail });
             
             if (!chat) {
@@ -539,7 +351,7 @@ Respond naturally and continue the discussion:`;
                     messages: [
                         {
                             role: 'assistant',
-                            content: "Hey there! 👋 I'm your CareerCrafter AI assistant. I can help you find React jobs, connect with employers, or get career advice. What can I do for you today?",
+                            content: "Hey! 👋 I'm your CareerCrafter AI. I can help you find jobs, give career advice, or connect you with employers. What brings you here today?",
                             timestamp: new Date()
                         }
                     ],
@@ -551,10 +363,7 @@ Respond naturally and continue the discussion:`;
                 chat = { ...newChat, _id: result.insertedId };
             }
 
-            res.json({
-                success: true,
-                data: chat
-            });
+            res.json({ success: true, data: chat });
         } catch (error) {
             console.error('Error getting chat:', error);
             res.status(500).json({
@@ -565,7 +374,7 @@ Respond naturally and continue the discussion:`;
         }
     });
 
-    // Send message and get AI response with premium checks
+    // Send message
     router.post('/chat/:userEmail/message', async (req, res) => {
         try {
             const { userEmail } = req.params;
@@ -578,25 +387,17 @@ Respond naturally and continue the discussion:`;
                 });
             }
 
-            console.log(`\n=== NEW MESSAGE ===`);
+            console.log(`\n━━━ NEW MESSAGE ━━━`);
             console.log(`📩 From: ${userEmail}`);
             console.log(`💬 Message: ${message}`);
 
-            // Check user access
-            const userAccess = await checkUserAccess(userEmail);
-            console.log('👤 User Access:', userAccess);
-
-            // Get or create chat
+            // Get chat
             let chat = await aichatbotCollection.findOne({ userEmail });
             if (!chat) {
                 const newChat = {
                     userId: userEmail,
                     userEmail,
-                    messages: [{
-                        role: 'assistant',
-                        content: "Hey there! 👋 I'm your CareerCrafter AI assistant. I can help you find React jobs, connect with employers, or get career advice. What can I do for you today?",
-                        timestamp: new Date()
-                    }],
+                    messages: [],
                     createdAt: new Date(),
                     updatedAt: new Date()
                 };
@@ -604,23 +405,32 @@ Respond naturally and continue the discussion:`;
                 chat = { ...newChat, _id: result.insertedId };
             }
 
-            // Add user message
+            // Check access BEFORE adding message
+            const userAccess = await checkUserAccess(userEmail);
+            console.log('✅ Access check:', userAccess);
+
+            // Create user message
             const userMessage = {
                 role: 'user',
                 content: message.trim(),
                 timestamp: new Date()
             };
 
-            // Generate AI response
-            const aiResponse = await generateAIResponse(message, userEmail);
+            // Generate AI response with chat history
+            const aiResult = await generateAIResponse(
+                message, 
+                userEmail, 
+                userAccess,
+                chat.messages || []
+            );
 
             const assistantMessage = {
                 role: 'assistant',
-                content: aiResponse,
+                content: aiResult.content,
                 timestamp: new Date()
             };
 
-            // Update chat
+            // Save both messages
             await aichatbotCollection.updateOne(
                 { userEmail },
                 {
@@ -631,16 +441,19 @@ Respond naturally and continue the discussion:`;
                 }
             );
 
-            console.log(`✅ Response sent successfully`);
-            console.log(`💰 User Tier: ${userAccess.tier}, Messages: ${getConversationContext(userEmail).messageCount}`);
-            console.log(`=====================\n`);
+            // Get updated access
+            const updatedAccess = await checkUserAccess(userEmail);
+
+            console.log(`✅ Response sent | Messages: ${updatedAccess.messageCount}/${PREMIUM_CONFIG.FREE_MESSAGES}`);
+            console.log(`━━━━━━━━━━━━━━━━━\n`);
 
             res.json({
                 success: true,
                 data: {
                     userMessage,
                     assistantMessage,
-                    userAccess
+                    userAccess: updatedAccess,
+                    jobs: aiResult.jobs || []
                 }
             });
 
@@ -654,24 +467,17 @@ Respond naturally and continue the discussion:`;
         }
     });
 
-    // Get user AI credits and status
+    // Get user status
     router.get('/user-status/:userEmail', async (req, res) => {
         try {
             const { userEmail } = req.params;
             const userAccess = await checkUserAccess(userEmail);
             const user = await usersCollection.findOne({ email: userEmail });
-            const context = getConversationContext(userEmail);
             
             res.json({
                 success: true,
                 data: {
                     userAccess,
-                    context: {
-                        messageCount: context.messageCount,
-                        phase: context.phase,
-                        lastIntent: context.lastIntent,
-                        skills: context.mentionedSkills
-                    },
                     user: {
                         email: user?.email,
                         isPremium: user?.isPremium,
@@ -691,11 +497,10 @@ Respond naturally and continue the discussion:`;
         }
     });
 
-    // Clear chat history
+    // Clear chat
     router.delete('/chat/:userEmail', async (req, res) => {
         try {
             const { userEmail } = req.params;
-            conversationMemory.delete(userEmail);
             
             await aichatbotCollection.updateOne(
                 { userEmail },
@@ -704,7 +509,7 @@ Respond naturally and continue the discussion:`;
                         messages: [
                             {
                                 role: 'assistant',
-                                content: "Hey there! 👋 Fresh start! I'm your CareerCrafter AI assistant. What can I help you with today?",
+                                content: "Hey! 👋 Fresh start! I'm your CareerCrafter AI. What can I help you with today?",
                                 timestamp: new Date()
                             }
                         ],

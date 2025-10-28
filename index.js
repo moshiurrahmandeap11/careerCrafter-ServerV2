@@ -57,6 +57,7 @@ const aichatbotCollection = require("./routes/ai-chatbot")
 const cvRoutes = require('./routes/cv');
 const postForHired = require("./routes/postForHired");
 const topSearch = require("./routes/topSearch");
+const liveInterview = require("./routes/live-interview");
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -94,6 +95,7 @@ async function run() {
     app.use("/v1/cvs", cvRoutes(db));
     app.use("/v1/hired-post", postForHired(db))
     app.use("/v1/top-search", topSearch(db))
+    app.use("/v1/live-interview", liveInterview(db))
 
   } catch (error) {
     console.error("❌ MongoDB Connection Failed:", error.message);

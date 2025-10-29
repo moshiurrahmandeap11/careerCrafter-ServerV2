@@ -6,6 +6,7 @@ const router = express.Router();
 
 module.exports = (db) => {
   const hirderPostCollections = db.collection("postForHired");
+  const usersCollection = db.collection("users");
 
 //   post in databasse (post for hired)
 
@@ -67,6 +68,36 @@ router.get('/allpost', async (req, res) => {
   } catch (error) {
     console.error('Error fetching posts:', error);
     res.status(500).send({ message: 'Failed to fetch posts' });
+  }
+});
+
+
+
+router.get("/get-profile", async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({ message: "Email is required" });
+    }
+
+    // MongoDB থেকে ইউজার খোঁজা
+    const profileData = await usersCollection .findOne(
+      { email },
+      {
+        password: 0, // password না পাঠানোই ভালো
+        __v: 0,
+      }
+    );
+
+    if (!profileData) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.status(200).json({ success: true, profileData });
+  } catch (error) {
+    console.error("Error fetching profile:", error);
+    res.status(500).json({ message: "Internal server error" });
   }
 });
 

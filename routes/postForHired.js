@@ -15,7 +15,7 @@ router.post('/added-hired-post', async (req, res) => {
   try {
     const newPost = {
       ...req.body,
-      date: new Date(), // ✅ always store as Date object
+      date: new Date(), //  always store as Date object
     };
 
     const result = await hirderPostCollections.insertOne(newPost);
@@ -81,11 +81,11 @@ router.get("/get-profile", async (req, res) => {
       return res.status(400).json({ message: "Email is required" });
     }
 
-    // MongoDB থেকে ইউজার খোঁজা
+    
     const profileData = await usersCollection .findOne(
       { email },
       {
-        password: 0, // password না পাঠানোই ভালো
+        password: 0, 
         __v: 0,
       }
     );

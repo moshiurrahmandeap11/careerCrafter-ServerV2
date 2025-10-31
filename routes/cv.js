@@ -138,6 +138,14 @@ module.exports = (db) => {
         return text && text.toString().trim() !== '' ? text.toString().trim() : defaultText;
       };
 
+      const formatLink = (url) => {
+        if (!url) return '';
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+          return `https://${url}`;
+        }
+        return url;
+      };
+
       let yPosition = 40;
 
       // ========== HEADER SECTION ==========
@@ -168,29 +176,137 @@ module.exports = (db) => {
 
       yPosition += 30;
 
-      // Contact Information
+      // ========== CONTACT INFORMATION IN COLUMNS ==========
       const contactInfo = [];
-      if (hasData(cvData.personal.email)) contactInfo.push(getValidText(cvData.personal.email));
-      if (hasData(cvData.personal.phone)) contactInfo.push(getValidText(cvData.personal.phone));
-      if (hasData(cvData.personal.address)) contactInfo.push(getValidText(cvData.personal.address));
-      if (hasData(cvData.personal.city)) contactInfo.push(getValidText(cvData.personal.city));
-      if (hasData(cvData.personal.country)) contactInfo.push(getValidText(cvData.personal.country));
-      if (hasData(cvData.personal.linkedin)) contactInfo.push(getValidText(cvData.personal.linkedin));
-      if (hasData(cvData.personal.github)) contactInfo.push(getValidText(cvData.personal.github));
+      
+      // Email
+      if (hasData(cvData.personal.email)) {
+        contactInfo.push({
+          type: 'Email',
+          value: getValidText(cvData.personal.email),
+          isLink: true,
+          url: `mailto:${cvData.personal.email}`
+        });
+      }
 
+      // Phone
+      if (hasData(cvData.personal.phone)) {
+        contactInfo.push({
+          type: 'Phone',
+          value: getValidText(cvData.personal.phone),
+          isLink: true,
+          url: `tel:${cvData.personal.phone.replace(/\s+/g, '')}`
+        });
+      }
+
+      // Address
+      if (hasData(cvData.personal.address)) {
+        contactInfo.push({
+          type: 'Address',
+          value: getValidText(cvData.personal.address),
+          isLink: false
+        });
+      }
+
+      // City
+      if (hasData(cvData.personal.city)) {
+        contactInfo.push({
+          type: 'City',
+          value: getValidText(cvData.personal.city),
+          isLink: false
+        });
+      }
+
+      // Country
+      if (hasData(cvData.personal.country)) {
+        contactInfo.push({
+          type: 'Country',
+          value: getValidText(cvData.personal.country),
+          isLink: false
+        });
+      }
+
+      // LinkedIn
+      if (hasData(cvData.personal.linkedin)) {
+        contactInfo.push({
+          type: 'LinkedIn',
+          value: getValidText(cvData.personal.linkedin),
+          isLink: true,
+          url: formatLink(cvData.personal.linkedin)
+        });
+      }
+
+      // GitHub
+      if (hasData(cvData.personal.github)) {
+        contactInfo.push({
+          type: 'GitHub',
+          value: getValidText(cvData.personal.github),
+          isLink: true,
+          url: formatLink(cvData.personal.github)
+        });
+      }
+
+      // Website/Portfolio
+      if (hasData(cvData.personal.website)) {
+        contactInfo.push({
+          type: 'Portfolio',
+          value: getValidText(cvData.personal.website),
+          isLink: true,
+          url: formatLink(cvData.personal.website)
+        });
+      }
+
+      // Display contact info in 2 columns
       if (contactInfo.length > 0) {
-        doc.fontSize(9).font('Helvetica')
-          .fillColor('#333333')
-          .text(contactInfo.join(' | '), 50, yPosition, {
-            width: 500,
-            align: 'left'
-          });
+        const columnWidth = 250;
+        const rowHeight = 15;
+        const startX = 50;
+        
+        contactInfo.forEach((contact, index) => {
+          const column = index % 2;
+          const row = Math.floor(index / 2);
+          const xPosition = startX + (column * columnWidth);
+          const currentYPosition = yPosition + (row * rowHeight);
 
-        yPosition += 20;
+          // Type (Email, Phone, etc.)
+          doc.fontSize(8).font('Helvetica-Bold')
+            .fillColor('#333333')
+            .text(contact.type + ':', xPosition, currentYPosition, {
+              width: 60,
+              continued: false
+            });
+
+          // Value with hyperlink if applicable
+          if (contact.isLink) {
+            // For PDF hyperlinks, we use annotations
+            doc.fontSize(8).font('Helvetica')
+              .fillColor('#1155cc') // Blue color for links
+              .text(contact.value, xPosition + 25, currentYPosition, {
+                width: columnWidth - 30,
+                link: contact.url,
+                underline: true
+              });
+          } else {
+            doc.fontSize(8).font('Helvetica')
+              .fillColor('#333333')
+              .text(contact.value, xPosition + 25, currentYPosition, {
+                width: columnWidth - 30
+              });
+          }
+        });
+
+        // Calculate new yPosition based on number of rows
+        const totalRows = Math.ceil(contactInfo.length / 2);
+        yPosition += (totalRows * rowHeight) + 20;
       }
 
       // ========== PROFESSIONAL SUMMARY ==========
       if (hasData(cvData.personal.summary)) {
+        if (yPosition > 650) {
+          doc.addPage();
+          yPosition = 40;
+        }
+
         doc.fontSize(12).font('Helvetica-Bold')
           .fillColor('#000000')
           .text('PROFESSIONAL SUMMARY', 50, yPosition);
@@ -203,6 +319,7 @@ module.exports = (db) => {
         yPosition += 30;
 
         doc.fontSize(10).font('Helvetica')
+          .fillColor('#000000')
           .text(getValidText(cvData.personal.summary), 50, yPosition, {
             width: 500,
             align: 'left',
@@ -512,6 +629,20 @@ module.exports = (db) => {
             yPosition += 8;
           }
 
+          // Project Link (with hyperlink)
+          if (hasData(project.link)) {
+            const projectLink = formatLink(project.link);
+            doc.fontSize(7).font('Helvetica')
+              .fillColor('#1155cc')
+              .text('Project Link: ', 50, yPosition, { continued: true })
+              .fillColor('#1155cc')
+              .text(getValidText(project.link), { 
+                link: projectLink,
+                underline: true
+              });
+            yPosition += 8;
+          }
+
           // Description
           if (hasData(project.description)) {
             doc.fontSize(8).font('Helvetica')
@@ -627,7 +758,7 @@ module.exports = (db) => {
             yPosition += 10;
           }
 
-          // Credential ID
+          // Credential ID and Link (with hyperlink)
           if (hasData(cert.credentialId)) {
             doc.fontSize(7).font('Helvetica')
               .fillColor('#666666')
@@ -636,10 +767,115 @@ module.exports = (db) => {
             yPosition += 8;
           }
 
+          if (hasData(cert.link)) {
+            const certLink = formatLink(cert.link);
+            doc.fontSize(7).font('Helvetica')
+              .fillColor('#1155cc')
+              .text('View Certificate: ', 50, yPosition, { continued: true })
+              .fillColor('#1155cc')
+              .text(getValidText(cert.link), { 
+                link: certLink,
+                underline: true
+              });
+            yPosition += 8;
+          }
+
           yPosition += 10;
 
           // Add space between entries
           if (index < cvData.certifications.length - 1) {
+            doc.moveTo(50, yPosition)
+              .lineTo(550, yPosition)
+              .strokeColor('#e0e0e0')
+              .stroke();
+            yPosition += 15;
+          }
+        });
+      }
+
+      // ========== REFERENCES SECTION ==========
+      if (hasData(cvData.references)) {
+        if (yPosition > 650) {
+          doc.addPage();
+          yPosition = 40;
+        }
+
+        doc.fontSize(12).font('Helvetica-Bold')
+          .text('REFERENCES', 50, yPosition);
+
+        doc.moveTo(50, yPosition + 15)
+          .lineTo(550, yPosition + 15)
+          .strokeColor('#333333')
+          .stroke();
+
+        yPosition += 30;
+
+        cvData.references.forEach((ref, index) => {
+          if (yPosition > 700) {
+            doc.addPage();
+            yPosition = 40;
+          }
+
+          // Reference Name and Position
+          if (hasData(ref.name) || hasData(ref.position)) {
+            doc.fontSize(10).font('Helvetica-Bold')
+              .text(getValidText(ref.name), 50, yPosition);
+
+            if (hasData(ref.position)) {
+              doc.fontSize(9).font('Helvetica')
+                .text(getValidText(ref.position), 250, yPosition, { align: 'right' });
+            }
+
+            yPosition += 15;
+          }
+
+          // Company and Contact
+          let details = [];
+          if (hasData(ref.company)) {
+            details.push(getValidText(ref.company));
+          }
+          if (hasData(ref.email)) {
+            details.push(getValidText(ref.email));
+          }
+          if (hasData(ref.phone)) {
+            details.push(getValidText(ref.phone));
+          }
+
+          if (details.length > 0) {
+            doc.fontSize(8).font('Helvetica')
+              .fillColor('#666666')
+              .text(details.join(' | '), 50, yPosition);
+
+            yPosition += 10;
+          }
+
+          // LinkedIn Profile (with hyperlink)
+          if (hasData(ref.linkedin)) {
+            const linkedinLink = formatLink(ref.linkedin);
+            doc.fontSize(7).font('Helvetica')
+              .fillColor('#1155cc')
+              .text('LinkedIn: ', 50, yPosition, { continued: true })
+              .fillColor('#1155cc')
+              .text(getValidText(ref.linkedin), { 
+                link: linkedinLink,
+                underline: true
+              });
+            yPosition += 8;
+          }
+
+          // Relationship
+          if (hasData(ref.relationship)) {
+            doc.fontSize(7).font('Helvetica')
+              .fillColor('#666666')
+              .text(`Relationship: ${getValidText(ref.relationship)}`, 50, yPosition);
+
+            yPosition += 8;
+          }
+
+          yPosition += 10;
+
+          // Add space between entries
+          if (index < cvData.references.length - 1) {
             doc.moveTo(50, yPosition)
               .lineTo(550, yPosition)
               .strokeColor('#e0e0e0')
